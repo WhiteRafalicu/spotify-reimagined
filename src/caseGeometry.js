@@ -164,6 +164,7 @@ class RodBuilder {
   }
 
   add(path, size, closed = false) {
+    if (this.skip) return;
     const { pts, nrm } = profile(size, size.seg ?? 6);
     const m = pts.length;
     const n = path.length;
@@ -330,7 +331,10 @@ function mergeSheets(list) {
   return g;
 }
 
-export function trayGeometry() {
+// { shelf: true } builds only what shows when the case stands edge-on in a row (outer rail, floor
+// edge, collars, hinge, floor panel): the interior can't be seen from there.
+export function trayGeometry({ shelf = false } = {}) {
+  const full = !shelf;
   const rods = new RodBuilder();
 
   rods.add(roundedSquare(HALF - RAIL.hw, CORNER - 1.5), RAIL, true);
@@ -365,7 +369,7 @@ export function trayGeometry() {
   }
 
   const e = HALF - INSET_INNER;
-  for (const [sx, sy] of [
+  if (full) for (const [sx, sy] of [
     [-1, 1],
     [1, 1],
     [1, -1],
@@ -400,6 +404,8 @@ export function trayGeometry() {
     );
   }
 
+  // The interior (well, ribs, clips, tab, hub): skipped for the shelf build.
+  rods.skip = shelf;
   rods.add(circle(0, 0, WELL_R, 1.1), { hw: 1.15, hh: 1.7, rc: 1.0, zc: -2.1, seg: 5 }, true);
   rods.add(circle(0, 0, WELL_R - 1.55, 1.1), { hw: 0.5, hh: 0.8, rc: 0.45, zc: -3.0, seg: 4 }, true);
 
@@ -467,6 +473,8 @@ export function trayGeometry() {
     holes.push(circle(hx * 8.9, hy * 8.9, 1.7, 0.4).reverse());
   }
 
+  rods.skip = false;
+
   const knuckle = { hw: 2.1, hh: 2.1, rc: 2.08, zc: HINGE.z, seg: 6, ends: 'flat' };
   rods.add(
     [
@@ -483,6 +491,7 @@ export function trayGeometry() {
     knuckle,
   );
 
+  if (!full) return { rods: rods.build(), sheets: mergeSheets([sheet(roundedSquare(HALF, CORNER), FLOOR_Z[0], FLOOR_Z[1])]) };
   const sheets = [
     sheet(roundedSquare(HALF, CORNER), FLOOR_Z[0], FLOOR_Z[1]),
     sheet(roundedRect(tabMid, 0, tabHw, TAB.hh, 4.2), 1.0, 2.6),
@@ -494,12 +503,12 @@ export function trayGeometry() {
   return { rods: rods.build(), sheets: mergeSheets(sheets) };
 }
 
-export function lidGeometry() {
+export function lidGeometry({ shelf = false } = {}) {
   const rods = new RodBuilder();
   const zc = (LID_Z[0] + LID_Z[1]) / 2;
   rods.add(roundedSquare(HALF - 1.0, CORNER - 1), { hw: 1.0, hh: 1.0, rc: 0.98, zc, seg: 5 }, true);
   rods.add(roundedSquare(HALF - 3.4, CORNER - 3), { hw: 0.42, hh: 0.4, rc: 0.38, zc: LID_Z[0] + 0.25, seg: 3 }, true);
-  for (const sy of [-1, 1]) {
+  if (!shelf) for (const sy of [-1, 1]) {
     for (const x of [-42, 30]) {
       const y = sy * (HALF - 3.4);
       rods.add(arc([x, y], 4.4, sy > 0 ? Math.PI : 0, sy > 0 ? 2 * Math.PI : Math.PI, 0.5), {
@@ -511,7 +520,7 @@ export function lidGeometry() {
       });
     }
   }
-  for (const sx of [-1, 1]) {
+  if (!shelf) for (const sx of [-1, 1]) {
     for (const y of [-30, 30]) {
       const x = sx * (HALF - 3.4);
       rods.add(

@@ -505,10 +505,31 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       blendDstAlpha: THREE.OneFactor,
     }),
   );
-  // The shelf is seen from afar, so it uses a lighter build of the same case (39k triangles, not 99k).
-  const trayParts = withDetail(2, trayGeometry);
-  const lidParts = withDetail(2, lidGeometry);
-  for (const g of [trayParts.rods, trayParts.sheets, lidParts.rods, lidParts.sheets]) own(g);
+  // Two builds of the same case. On the shelf only the hinge edge shows, so cases in the row use the
+  // shelf build (rails, hinge and floor: 9k triangles). The few that are out of the row (hovered,
+  // pulled, arriving) use the full one (40k), interior and all.
+  const trayParts = withDetail(2, () => trayGeometry({ shelf: true }));
+  const lidParts = withDetail(2, () => lidGeometry({ shelf: true }));
+  const nearTray = withDetail(2, trayGeometry);
+  const nearLid = withDetail(2, lidGeometry);
+  for (const g of [trayParts.rods, trayParts.sheets, lidParts.rods, lidParts.sheets, nearTray.rods, nearTray.sheets, nearLid.rods, nearLid.sheets]) own(g);
+  const NEAR = 6;
+  const near = {};
+  {
+    const make = (geo, mat, order) => {
+      const m = new THREE.InstancedMesh(geo, mat, NEAR);
+      m.frustumCulled = false;
+      m.renderOrder = order;
+      m.count = 0;
+      glass.add(m);
+      return m;
+    };
+    near.trayRods = make(nearTray.rods, rodMat, 0);
+    near.lidRods = make(nearLid.rods, rodMat, 0);
+    near.traySheets = make(nearTray.sheets, sheetMat, 1);
+    near.lidSheets = make(nearLid.sheets, sheetMat, 1);
+  }
+  const nearList = Object.values(near);
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   let capacity = 0;
   let layerAttr = null; // per instance: which texture layer its spine and cover read
@@ -642,6 +663,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     freeSlots.sort((a, b) => b - a); // pop() hands out the lowest slot first
     capGen++; // every case rewrites itself into the new buffers (see step)
     drawCount = -1;
+    for (const c of slotOwner) if (c) c.lod = null;
   }
   // The pool: slotOwner[i] is the case drawn in instance/layer i (or null).
   const slotOwner = [];
@@ -965,6 +987,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     c.slot = -1;
     c.shown = false;
     c.layered = false;
+    c.lod = null;
     instDirty = true;
   }
   function setLayer(slot, layer) {
@@ -1357,6 +1380,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     const sdt = dt / 2;
     let wrote = instDirty;
     instDirty = false;
+    let nearCount = 0;
     for (let slot = 0; slot < slotOwner.length; slot++) {
       const c = slotOwner[slot];
       if (!c) continue;
@@ -1402,7 +1426,11 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
         moving = true;
         shadowDirty = true;
       }
-      if (settled && c.shown && c.gen === capGen) continue;
+      // Out of its place in the row (or about to be): the full-detail glass.
+      const isNear =
+        nearCount < NEAR &&
+        (forced || Math.abs(c.cur.z) > 1.5 || Math.abs(c.cur.ry) > 0.01 || c.cur.lid > 0.01 || Math.abs(c.cur.y - c.home.y) > 1.5);
+      if (settled && c.shown && c.gen === capGen && !isNear && c.lod !== 'near') continue;
       c.shown = true;
       c.gen = capGen;
       wrote = true;
@@ -1412,10 +1440,21 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       _lid.copy(_m).multiply(hingeIn).multiply(_r.makeRotationY(-Math.max(0, lid))).multiply(hingeOut);
       posePool[c.slot].copy(_m);
       hitPool[c.slot].matrixWorld.copy(_m);
-      inst.trayRods.setMatrixAt(c.slot, _m);
-      inst.traySheets.setMatrixAt(c.slot, _m);
-      inst.lidRods.setMatrixAt(c.slot, _lid);
-      inst.lidSheets.setMatrixAt(c.slot, _lid);
+      if (isNear) {
+        const j = nearCount++;
+        near.trayRods.setMatrixAt(j, _m);
+        near.traySheets.setMatrixAt(j, _m);
+        near.lidRods.setMatrixAt(j, _lid);
+        near.lidSheets.setMatrixAt(j, _lid);
+        if (c.lod !== 'near') for (const m of [inst.trayRods, inst.traySheets, inst.lidRods, inst.lidSheets]) m.setMatrixAt(c.slot, ZERO);
+        c.lod = 'near';
+      } else {
+        inst.trayRods.setMatrixAt(c.slot, _m);
+        inst.traySheets.setMatrixAt(c.slot, _m);
+        inst.lidRods.setMatrixAt(c.slot, _lid);
+        inst.lidSheets.setMatrixAt(c.slot, _lid);
+        c.lod = 'far';
+      }
       parts.book.setMatrixAt(c.slot, _pm.multiplyMatrices(_lid, BOOK_M));
       parts.label.setMatrixAt(c.slot, _pm.multiplyMatrices(_m, LABEL_M));
       parts.print.setMatrixAt(c.slot, _pm.multiplyMatrices(_m, PRINT_M));
@@ -1441,6 +1480,10 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       drawCount = top;
       for (const m of instList) m.count = top;
       contacts.count = top;
+    }
+    for (const m of nearList) {
+      m.count = nearCount;
+      if (nearCount) m.instanceMatrix.needsUpdate = true;
     }
     if (wrote) {
       contacts.instanceMatrix.needsUpdate = true;
