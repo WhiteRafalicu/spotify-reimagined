@@ -1319,16 +1319,75 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       renderer.shadowMap.needsUpdate = true;
       shadowDirty = false;
     }
+    const T = dbg.timer;
     renderer.setRenderTarget(rtMain);
     renderer.clear();
+    T?.begin('scene');
     renderer.render(scene, camera);
+    T?.end();
     renderer.setRenderTarget(rtBehind);
+    T?.begin('copy');
     renderer.render(copy.scene, screenCam);
+    T?.end();
     renderer.setRenderTarget(rtMain);
+    T?.begin('glass');
     renderer.render(glass, camera);
+    T?.end();
     renderer.render(fx, camera);
     renderer.setRenderTarget(null);
+    T?.begin('output');
     renderer.render(output.scene, screenCam);
+    T?.end();
+    T?.poll();
+  }
+
+  // Opt-in profiling, from DevTools: __cdShelf.profile({ busy: true, timing: true, pixelRatio: 1 }).
+  const dbg = { busy: false, timer: null };
+  function gpuTimer() {
+    const gl = renderer.getContext();
+    const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    if (!ext) return null;
+    const pending = [];
+    const sums = {};
+    let open = null;
+    return {
+      begin(label) {
+        const q = gl.createQuery();
+        gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+        open = { q, label };
+      },
+      end() {
+        gl.endQuery(ext.TIME_ELAPSED_EXT);
+        pending.push(open);
+        open = null;
+      },
+      poll() {
+        if (gl.getParameter(ext.GPU_DISJOINT_EXT)) {
+          for (const p of pending) gl.deleteQuery(p.q);
+          pending.length = 0;
+          return;
+        }
+        while (pending.length && gl.getQueryParameter(pending[0].q, gl.QUERY_RESULT_AVAILABLE)) {
+          const p = pending.shift();
+          const ms = gl.getQueryParameter(p.q, gl.QUERY_RESULT) / 1e6;
+          gl.deleteQuery(p.q);
+          const e = (sums[p.label] ||= { ms: 0, n: 0 });
+          e.ms += ms;
+          e.n++;
+        }
+      },
+      report() {
+        const out = {};
+        let total = 0;
+        for (const [k, v] of Object.entries(sums)) {
+          out[k] = +(v.ms / Math.max(1, v.n)).toFixed(2);
+          total += out[k];
+          v.ms = v.n = 0;
+        }
+        out.total = +total.toFixed(2);
+        return out;
+      },
+    };
   }
 
   const raycaster = new THREE.Raycaster();
@@ -1406,7 +1465,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   const tick = (now) => {
     raf = requestAnimationFrame(tick);
     if (paused || document.hidden) return;
-    if (!busy && now - activeAt > 1500) {
+    if (!busy && !dbg.busy && now - activeAt > 1500) {
       const interval = document.hasFocus() ? 1000 / 30 - 2 : 1000 / 15 - 2;
       if (last && now - last < interval) return;
     }
@@ -1436,6 +1495,15 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
 
   return {
     perf: () => perfReport(),
+    profile({ busy, timing, pixelRatio } = {}) {
+      if (busy !== undefined) dbg.busy = busy;
+      if (timing !== undefined) dbg.timer = timing ? gpuTimer() : null;
+      if (pixelRatio !== undefined) {
+        renderer.setPixelRatio(pixelRatio);
+        layout();
+      }
+      return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
+    },
     debug: () => ({ screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
