@@ -239,10 +239,11 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
       key = `${state.track}|${at.i}|${Math.round(reveal * chars)}`;
     } else key = `${state.track}|${ly === undefined ? 'loading' : 'none'}`;
     state.current = ly && at.i >= 0 ? { i: at.i, text: ly.lines[at.i].text, reveal: +reveal.toFixed(2) } : null;
-    if (key === state.key) return;
+    if (key === state.key) return false;
     state.key = key;
     draw(ly, at, reveal);
     tex.needsUpdate = true;
+    return true;
   }
 
   return {

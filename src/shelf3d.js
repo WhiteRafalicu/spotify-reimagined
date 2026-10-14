@@ -1187,6 +1187,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   const blankCover = new Uint8ClampedArray(COVER_PX * COVER_PX * 4).fill(40);
 
   function layout() {
+    wake();
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
     renderer.setSize(w, h, false);
@@ -1524,7 +1525,13 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
         pools.power.value[k] = l.intensity;
       });
     }
-    const cornerBusy = corner?.update(dt, t, corner && corner.standTopY + 450 > lookY - seeHalf && corner.floorY < lookY + seeHalf);
+    // The corner's tallest thing (the whiteboard) reaches ~400 mm above the table top; test it against
+    // what's actually on screen, not the padded culling range.
+    const visHalf = (camera.position.z - D / 2) * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) + 20;
+    const cornerInView = !!corner && corner.standTopY + 410 > lookY - visHalf && corner.floorY < lookY + visHalf;
+    // Only the TV animates on its own (the board changes once per lyric line, which wakes it anyway).
+    cornerAlive = cornerInView && corner.alive && corner.standTopY + 300 > lookY - visHalf;
+    const cornerBusy = corner?.update(dt, t, cornerInView);
     if (cornerBusy) shadowDirty = true;
     // The rows in view (plus one either side) hold slots; everything else is released.
     const rowLo = clamp(Math.floor((-(lookY + seeHalf)) / ROW_PITCH) - 1, 0, Math.max(0, rowCount - 1));
@@ -1657,6 +1664,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       for (const m of instList) m.instanceMatrix.needsUpdate = true;
     }
     busy = moving;
+    dbg.why = { cornerBusy, cam: Math.abs(cam.target - cam.y) > 0.05, spot: !!spot, queue: layerQueue.length, cornerAlive };
 
     const ledOn = !!(live && !live.gone && live.slot >= 0 && live.shown);
     led.visible = ledOn;
@@ -1715,6 +1723,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   }
   let frameGap = 16;
   let frameThrottled = false;
+  let cornerAlive = false;
 
   // Opt-in profiling, from DevTools: __cdShelf.profile({ busy: true, timing: true, pixelRatio: 1 }).
   const dbg = { busy: false, timer: null };
@@ -1840,7 +1849,14 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   const tick = (now) => {
     raf = requestAnimationFrame(tick);
     if (paused || document.hidden) return;
-    if (!busy && !dbg.busy && now - activeAt > 1500) {
+    // Idle: 30 fps (15 unfocused) for a few seconds; then, unless the TV is on screen, nothing at
+    // all until something wakes it (input, a track change, a cover arriving, a resize).
+    const idleFor = now - activeAt;
+    if (!busy && !dbg.busy && idleFor > 1500) {
+      if (idleFor > 5000 && !cornerAlive && !layerQueue.length) {
+        last = 0;
+        return;
+      }
       const interval = document.hasFocus() ? 1000 / 30 - 2 : 1000 / 15 - 2;
       if (last && now - last < interval) return;
     }
@@ -1896,10 +1912,11 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ why: dbg.why, busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {
+      wake();
       if (corner && canvasFor) corner.setTrack(info, canvasFor);
     },
     setLive(uri) {

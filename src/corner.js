@@ -702,6 +702,10 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     },
     setTrack,
     setStack,
+    // True while the TV is on: its picture never fully stops (flicker, rolling bar, video).
+    get alive() {
+      return screen.kind !== 'off' || screen.power > 0.01;
+    },
     setTvLight(on) {
       tvLight = on;
     },
