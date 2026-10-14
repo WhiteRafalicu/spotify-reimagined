@@ -49,6 +49,31 @@ function cutGlass(root) {
 
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
+// Models are parsed and prepared once per Spotify session; each corner gets its own copy (clone
+// shares the geometry, materials and textures, so it's nearly free).
+const modelCache = new Map();
+function loadModel(url, prepare) {
+  if (!modelCache.has(url)) {
+    const p = loader.loadAsync(url).then((g) => {
+      prepare?.(g.scene);
+      return g.scene;
+    });
+    p.catch(() => modelCache.delete(url));
+    modelCache.set(url, p);
+  }
+  return modelCache.get(url).then((root) => root.clone(true));
+}
+// The table ships unlit (KHR_materials_unlit); give it a lit, satin finish so it takes the room's
+// light and shadows like everything else.
+function litTable(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const old = o.material;
+    o.material = new THREE.MeshStandardMaterial({ map: old.map, color: 0xd2c8bf, roughness: 0.62, metalness: 0 });
+    old.dispose();
+  });
+}
+
 // Scales a loaded model so its largest horizontal extent is `width` mm, rests it on y = 0 and centres it.
 function fit(root, width) {
   root.updateMatrixWorld(true);
@@ -130,9 +155,24 @@ function drawOsd(canvas, { name, artist, paused, channel }) {
   }
 }
 
-export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, contactMat, quadGeo, assets, onScreenColor, onChange, prewarm, lyricsFor, getProgress }) {
+export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, contactMat, quadGeo, assets, onScreenColor, onChange, prepare, lyricsFor, getProgress }) {
   // The models load once the shelf is up and the page is idle, so they don't compete with it.
-  const later = (fn) => setTimeout(() => (window.requestIdleCallback || setTimeout)(fn), 1200);
+  // Loads start as soon as the browser has a moment after the shelf's first frames (models already
+  // parsed this session come straight from the cache).
+  const later = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 250 }) : setTimeout(fn, 50));
+  // A model stays hidden until the GPU has its textures and shaders (see the shelf's prepare), so it
+  // appears without a stall on the frame it first shows.
+  const reveal = (obj, light) => {
+    obj.visible = false;
+    Promise.resolve(prepare?.(obj, light)).finally(() => {
+      obj.visible = true;
+      onChange?.();
+    });
+  };
+  // Load timing (ms since the corner was created), for __cdShelf.debug().screen.timing.
+  const born = performance.now();
+  const timing = {};
+  const mark = (k) => (timing[k] = Math.round(performance.now() - born));
   const group = new THREE.Group();
   scene.add(group);
   const state = { y: null, targetY: 0, floorY: 0, tvCenterY: 0, wallZ: 0 };
@@ -262,11 +302,11 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let table = null;
   const pickables = [];
   if (assets.tv) {
-    later(() => loader.loadAsync(assets.tv).then((g) => {
-      cutGlass(g.scene);
+    later(() => (mark('tvStart'), loadModel(assets.tv, (root) => (cutGlass(root), shadows(root)))).then((root) => {
+      mark('tv');
+      const g = { scene: root };
       tvRoot = g.scene;
       g.scene.add(tube);
-      shadows(g.scene);
       tube.castShadow = false;
       // Model is in metres with its screen facing +x; turn it to face the room (+z) and scale to mm.
       g.scene.rotation.y = -Math.PI / 2;
@@ -280,45 +320,40 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       group.add(tv);
       pickables.push(...collect(g.scene));
       arrange();
-      later(() => prewarm?.(glow));
+      reveal(tv, glow);
     }));
   }
   if (assets.ps2) {
-    later(() => loader.loadAsync(assets.ps2).then((g) => {
-      shadows(g.scene);
-      ps2 = fit(g.scene, 301);
+    later(() => (mark('ps2Start'), loadModel(assets.ps2, shadows)).then((root) => {
+      mark('ps2');
+      ps2 = fit(root, 301);
       group.add(ps2);
       arrange();
+      reveal(ps2);
     }));
   }
   if (assets.pad) {
-    later(() => loader.loadAsync(assets.pad).then((g) => {
-      shadows(g.scene);
-      pad = fit(g.scene, 158);
+    later(() => (mark('padStart'), loadModel(assets.pad, shadows)).then((root) => {
+      mark('pad');
+      pad = fit(root, 158);
       group.add(pad);
       arrange();
+      reveal(pad);
     }));
   }
   if (assets.tray && furniture === 'table') {
-    later(() => loader.loadAsync(assets.tray).then((g) => {
-      shadows(g.scene);
-      tray = fit(g.scene, 140);
+    later(() => (mark('trayStart'), loadModel(assets.tray, shadows)).then((root) => {
+      mark('tray');
+      tray = fit(root, 140);
       group.add(tray);
       arrange();
+      reveal(tray);
     }));
   }
   if (furniture === 'table') {
-    later(() => loader.loadAsync(assets.table).then((g) => {
-      // The table ships unlit (KHR_materials_unlit); give it a lit, satin finish so it takes the
-      // room's light and shadows like everything else.
-      g.scene.traverse((o) => {
-        if (!o.isMesh) return;
-        const old = o.material;
-        o.material = own(new THREE.MeshStandardMaterial({ map: old.map, color: 0xd2c8bf, roughness: 0.62, metalness: 0 }));
-        old.dispose();
-      });
-      shadows(g.scene);
-      table = fit(g.scene, TABLE_WIDTH);
+    later(() => (mark('tableStart'), loadModel(assets.table, (root) => (litTable(root), shadows(root)))).then((root) => {
+      mark('table');
+      table = fit(root, TABLE_WIDTH);
       const s = table.userData.size;
       lay.top = s.y;
       lay.depth = s.z;
@@ -326,6 +361,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       group.add(table);
       arrange();
       if (placed) place(...placed);
+      reveal(table);
     }));
   }
 
@@ -450,7 +486,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let board = null;
   if (assets.board && furniture === 'table' && lyricsFor && getProgress) {
     later(() => {
-      board = createWhiteboard({ own, loader, asset: assets.board, font: assets.font, lyricsFor, getProgress, onReady: () => arrange() });
+      board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, lyricsFor, getProgress, onReady: () => (arrange(), reveal(board.group)) });
       group.add(board.group);
       if (screen.info) board.setTrack(screen.info);
     });
@@ -714,7 +750,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       return lay.halfW + 40;
     },
     get screen() {
-      return { board: board?.current, live: screen.live, hasMirrorTex: !!mirror.tex, mirror: mirror.el ? { w: mirror.el.videoWidth, h: mirror.el.videoHeight, paused: mirror.el.paused } : null, kind: screen.kind, track: screen.track, paused: screen.paused, video: screen.video ? { w: screen.video.videoWidth, h: screen.video.videoHeight, t: +screen.video.currentTime.toFixed(2), paused: screen.video.paused } : null };
+      return { timing, board: board?.current, live: screen.live, hasMirrorTex: !!mirror.tex, mirror: mirror.el ? { w: mirror.el.videoWidth, h: mirror.el.videoHeight, paused: mirror.el.paused } : null, kind: screen.kind, track: screen.track, paused: screen.paused, video: screen.video ? { w: screen.video.videoWidth, h: screen.video.videoHeight, t: +screen.video.currentTime.toFixed(2), paused: screen.video.paused } : null };
     },
     get floorY() {
       return state.floorY;

@@ -332,7 +332,11 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {} }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {} }) {
+  // The shelf can be parked when its page closes and re-attached to a new container (see detach).
+  let container = initialContainer;
+  const handlers = { onPick, onHover, onTv };
+  let detached = false;
   const canvas = document.createElement('canvas');
   canvas.className = 'cds-shelf-canvas';
   container.appendChild(canvas);
@@ -948,15 +952,43 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
             shadowDirty = true;
             wake();
           },
-          // Compile shaders with the TV's light both on and off, so scrolling to it doesn't hitch.
-          prewarm: (light) => {
-            const was = light.visible;
-            light.visible = !was;
-            renderer.compile(scene, camera);
-            light.visible = was;
-          },
+          // A new model's textures are uploaded one per idle moment and its shaders compiled in parallel
+          // where the driver can, before it's shown. For the TV, both variants: area light on and off.
+          prepare: (obj, light) => (warmChain = warmChain.then(() => prepareGpu(obj, light)).catch(() => {})),
         })
       : null;
+
+  let warmChain = Promise.resolve();
+  const idle = () => new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(r, { timeout: 200 }) : setTimeout(r, 16)));
+  const warmed = new WeakSet();
+  async function prepareGpu(obj, light) {
+    const textures = [];
+    obj.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of [].concat(o.material))
+        for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap'])
+          if (m[k] && !warmed.has(m[k])) textures.push(m[k]);
+    });
+    for (const tex of textures) {
+      if (disposed) return;
+      warmed.add(tex);
+      await idle();
+      renderer.initTexture(tex);
+    }
+    if (disposed) return;
+    // compile() skips hidden objects, so show it just for the (synchronous) start of each compile.
+    const was = obj.visible;
+    obj.visible = true;
+    const jobs = [renderer.compileAsync(scene, camera)];
+    if (light) {
+      const lv = light.visible;
+      light.visible = !lv;
+      jobs.push(renderer.compileAsync(scene, camera));
+      light.visible = lv;
+    }
+    obj.visible = was;
+    await Promise.all(jobs);
+  }
 
   // The key's shadow camera hugs the shelf unit and the rows in view.
   function fitShadow() {
@@ -1532,6 +1564,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     // Only the TV animates on its own (the board changes once per lyric line, which wakes it anyway).
     cornerAlive = cornerInView && corner.alive && corner.standTopY + 300 > lookY - visHalf;
     const cornerBusy = corner?.update(dt, t, cornerInView);
+    if (cornerInView && corner && dbg.cornerSeenAt === undefined) dbg.cornerSeenAt = Math.round(performance.now() - dbg.born);
     if (cornerBusy) shadowDirty = true;
     // The rows in view (plus one either side) hold slots; everything else is released.
     const rowLo = clamp(Math.floor((-(lookY + seeHalf)) / ROW_PITCH) - 1, 0, Math.max(0, rowCount - 1));
@@ -1725,7 +1758,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   let cornerAlive = false;
 
   // Opt-in profiling, from DevTools: __cdShelf.profile({ busy: true, timing: true, pixelRatio: 1 }).
-  const dbg = { busy: false, timer: null };
+  const dbg = { busy: false, timer: null, born: performance.now() };
   function gpuTimer() {
     const gl = renderer.getContext();
     const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
@@ -1790,7 +1823,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     if (c === hovered) return;
     hovered = c;
     container.style.cursor = c ? 'pointer' : '';
-    onHover?.(c ? c.item : null);
+    handlers.onHover?.(c ? c.item : null);
   };
 
   const onMove = (e) => {
@@ -1806,7 +1839,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       container.style.cursor = onTvNow ? 'pointer' : '';
       if (onTvNow !== overTv) {
         overTv = onTvNow;
-        onHover?.(onTvNow ? { name: 'CRT TV', artist: 'click to play or pause' } : null);
+        handlers.onHover?.(onTvNow ? { name: 'CRT TV', artist: 'click to play or pause' } : null);
       }
     } else if (overTv) overTv = false;
   };
@@ -1820,22 +1853,32 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     onMove(e);
     const c = pick();
     if (!c) {
-      if (overTv) onTv?.();
+      if (overTv) handlers.onTv?.();
       return;
     }
     pullOut(c.item.uri);
-    onPick?.(c.item);
+    handlers.onPick?.(c.item);
   };
   const onWheel = (e) => {
     e.preventDefault();
     const perPx = view.visH / view.h;
     cam.target = clamp(cam.target - e.deltaY * perPx * 0.9, bottomY(), topY());
   };
-  container.addEventListener('pointermove', onMove);
-  container.addEventListener('pointerleave', onLeave);
-  container.addEventListener('click', onClick);
-  container.addEventListener('wheel', onWheel, { passive: false });
-  for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.addEventListener(ev, wake, { passive: true });
+  function bind() {
+    container.addEventListener('pointermove', onMove);
+    container.addEventListener('pointerleave', onLeave);
+    container.addEventListener('click', onClick);
+    container.addEventListener('wheel', onWheel, { passive: false });
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.addEventListener(ev, wake, { passive: true });
+  }
+  function unbind() {
+    container.removeEventListener('pointermove', onMove);
+    container.removeEventListener('pointerleave', onLeave);
+    container.removeEventListener('click', onClick);
+    container.removeEventListener('wheel', onWheel);
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.removeEventListener(ev, wake);
+  }
+  bind();
 
   function pullOut(uri) {
     wake();
@@ -1847,7 +1890,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   // drift, the TV's flicker), 30 fps, or 15 fps while Spotify isn't the focused window.
   const tick = (now) => {
     raf = requestAnimationFrame(tick);
-    if (paused || document.hidden) return;
+    if (paused || detached || document.hidden) return;
     // Idle: 30 fps (15 unfocused) for a few seconds; then, unless the TV is on screen, nothing at
     // all until something wakes it (input, a track change, a cover arriving, a resize).
     const idleFor = now - activeAt;
@@ -1867,6 +1910,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     renderer.info.reset();
     step(dt);
     adaptEnd(frameGap, frameThrottled);
+    if (dbg.firstFrame === undefined) dbg.firstFrame = Math.round(performance.now() - dbg.born);
     perf.cpu += performance.now() - t0;
     perf.frames++;
   };
@@ -1911,7 +1955,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ firstFrameMs: dbg.firstFrame, cornerSeenAt: dbg.cornerSeenAt, busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {
@@ -1935,15 +1979,36 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       last = 0;
       wake();
     },
+    // Parks the whole scene (context, shaders, textures, covers) while its page is closed: nothing
+    // renders, and attach() brings it back in a new container as it was.
+    detach() {
+      if (detached) return;
+      detached = true;
+      ro.disconnect();
+      unbind();
+      pulled = null;
+      hovered = null;
+      pointer.over = false;
+      canvas.remove();
+    },
+    attach(el, next = {}) {
+      Object.assign(handlers, next);
+      if (!detached && el === container) return;
+      if (!detached) unbind();
+      ro.disconnect();
+      container = el;
+      container.appendChild(canvas);
+      bind();
+      ro.observe(container);
+      detached = false;
+      last = 0;
+      layout();
+    },
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
-      container.removeEventListener('pointermove', onMove);
-      container.removeEventListener('pointerleave', onLeave);
-      container.removeEventListener('click', onClick);
-      container.removeEventListener('wheel', onWheel);
-      for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.removeEventListener(ev, wake);
+      if (!detached) unbind();
       corner?.dispose();
       for (const m of Object.values(inst || {})) m.dispose();
       for (const d of disposables) d.dispose?.();

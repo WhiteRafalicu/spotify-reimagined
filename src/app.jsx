@@ -132,8 +132,21 @@ function Stage({ item, now, onClose, onShown }) {
   );
 }
 
+// The shelf scene and the library survive closing the page: coming back reattaches them instead of
+// rebuilding everything. A parked scene is released after a while to give its memory back.
+const PARK_MS = 10 * 60 * 1000;
+let parked = null; // { shelf, timer }
+let keptItems = null;
+
 function App() {
-  const [items, setItems] = useState(null);
+  const [items, setItemsState] = useState(() => keptItems);
+  const setItems = useCallback((v) => {
+    setItemsState((cur) => {
+      const next = typeof v === 'function' ? v(cur) : v;
+      keptItems = next;
+      return next;
+    });
+  }, []);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('recent');
@@ -191,15 +204,16 @@ function App() {
 
   useEffect(() => {
     if (!worldRef.current) return;
-    const s = createShelf(worldRef.current, {
-      onPick: (item) => pull(item),
-      onHover: setHover,
-      onTv: () => Spicetify.Player.togglePlay(),
-      canvasFor,
-      lyricsFor,
-      getProgress: createPlayerClock(),
-      assets,
-    });
+    const handlers = { onPick: (item) => pull(item), onHover: setHover, onTv: () => Spicetify.Player.togglePlay() };
+    let s;
+    if (parked) {
+      clearTimeout(parked.timer);
+      s = parked.shelf;
+      parked = null;
+      s.attach(worldRef.current, handlers);
+    } else {
+      s = createShelf(worldRef.current, { ...handlers, canvasFor, lyricsFor, getProgress: createPlayerClock(), assets });
+    }
     s?.setNowPlaying(nowTrack());
     s?.setQuality(quality);
     if (s) setTier(s.quality.tier);
@@ -207,11 +221,15 @@ function App() {
     shelf.current = s;
     window.__cdShelf = s; // handy from DevTools
     return () => {
-      s?.dispose();
       shelf.current = null;
+      if (!s) return;
+      s.detach();
+      const mine = { shelf: s, timer: setTimeout(() => (s.dispose(), parked === mine && (parked = null)), PARK_MS) };
+      parked = mine;
     };
   }, [host]);
   useEffect(() => {
+    if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
     arrivals.current = null;
   }, [shown, host]);

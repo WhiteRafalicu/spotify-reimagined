@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fresh load (page reload): model timings and stalls. Then a return visit: time to the first drawn
+# frame after coming back, and stalls.
+cd ~/Work/cd-shelf
+E() { timeout 90 node tools/cdp.mjs eval "$1"; }
+E 'location.reload(); return 1' >/dev/null; sleep 9
+echo "fresh:  $(E 'window.__lt = []; try { new PerformanceObserver((l) => { for (const e of l.getEntries()) __lt.push(Math.round(e.duration)); }).observe({ type: "longtask" }); } catch {} Spicetify.Platform.History.push("/cd-shelf"); const t0 = performance.now(); let s; while (performance.now() - t0 < 12000) { await new Promise(r => setTimeout(r, 100)); s = window.__cdShelf?.debug?.().screen?.timing; if (s && s.tv && s.ps2 && s.pad && s.table && s.tray) break; } return JSON.stringify({ models: s, longTasksMs: __lt.sort((a, b) => b - a).slice(0, 5) })')"
+sleep 3
+echo "return: $(E 'Spicetify.Platform.History.push("/search"); await new Promise(r => setTimeout(r, 2500)); window.__lt = []; const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) __lt.push(Math.round(e.duration)); }); po.observe({ type: "longtask" }); const t0 = performance.now(); Spicetify.Platform.History.push("/cd-shelf"); let frames = 0; while (performance.now() - t0 < 5000) { await new Promise(r => requestAnimationFrame(r)); const c = document.querySelector(".cds-world-gl canvas"); if (c && c.isConnected && window.__cdShelf) { window.__cdShelf.perf(); await new Promise(r => setTimeout(r, 60)); if (window.__cdShelf.perf().fps > 0) break; } } const ms = Math.round(performance.now() - t0); await new Promise(r => setTimeout(r, 1500)); po.disconnect(); return JSON.stringify({ firstFrameAfterReturnMs: ms, sameScene: window.__cdShelf.debug().screen.timing.tv !== undefined, longTasksMs: __lt.sort((a, b) => b - a).slice(0, 5) })')"

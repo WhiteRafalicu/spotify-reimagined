@@ -79,9 +79,9 @@ node tools/cdp.mjs shot out.png
 The models are not in the source tree. Put optimized copies in `assets/` and the build bundles them; without them, the shelf builds without the corner. Optimize with:
 
 ```bash
-npx gltf-transform optimize in.glb assets/crt_tv.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify false
+npx gltf-transform optimize in.glb assets/crt_tv.glb --compress meshopt --texture-compress webp --texture-size 512 --simplify false
 # heavier models (controller 0.2, ashtray 0.25, whiteboard 0.25, PS2 0.5):
-npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify true --simplify-ratio 0.2 --simplify-error 0.002
+npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress webp --texture-size 512 --simplify true --simplify-ratio 0.2 --simplify-error 0.002
 ```
 
 | File | Model | Author | Licence |
@@ -126,7 +126,8 @@ How:
 - **Adaptive resolution.** The GPU time of each frame is measured (timer queries, or frame timing where those aren't available). Above budget the render scale steps down (to 50% at most), with plenty of headroom it steps back up.
 - **Cheap lighting.** The picture-light pools are a diffuse term injected into the shelf's materials instead of six point lights. Lights are dimmed rather than switched off, so materials never recompile mid-scroll. Shadows of moving cases refresh at most 15 times a second, and the shadow area is three screens tall so scrolling rarely moves it.
 - **Idle.** 30 fps for a few seconds after the last input or motion (15 fps unfocused), then nothing at all, unless the TV is on screen. With "reduce motion" turned on in the system settings, there's no camera drift and no dust.
-- **Lean assets.** Room models simplified (controller, ashtray, whiteboard, PS2: 50.7k → 16.5k triangles) and meshopt-compressed. Covers come from Spotify's own browser cache on later sessions.
+- **The room appears fast.** The scene is parked, not destroyed, when you leave the shelf (released after 10 minutes away), so coming back draws in about 0.15 s with everything in place. Models are parsed once per Spotify session, start loading right after the shelf's first frames, all in parallel, and stay hidden until their textures are uploaded (one per idle moment) and their shaders compiled in the background, so they appear without a stall. Fresh load: room ready in about 0.6–1.0 s, no main-thread stalls after the shelf opens.
+- **Lean assets.** Room models simplified (controller, ashtray, whiteboard, PS2: 50.7k → 16.5k triangles) and meshopt-compressed, with 512 px textures (the room's objects are small on screen). Covers come from Spotify's own browser cache on later sessions.
 
 For profiling, from DevTools: `__cdShelf.profile({ busy: true, timing: true })`, wait a few seconds, then `__cdShelf.profile()` returns GPU ms per pass, fps, CPU ms and triangles. `baseDpr` simulates a high-density screen. Spotify's own UI uses a share of the GPU too (about 28–30% on this laptop), so compare against the shelf closed.
 
