@@ -3,6 +3,7 @@
 // controller beside the TV. The screen's light spills onto the stand and the room.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { CRT_FRAG, CRT_VERT } from './shaders';
@@ -46,7 +47,7 @@ function cutGlass(root) {
   });
 }
 
-const loader = new GLTFLoader();
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
 // Scales a loaded model so its largest horizontal extent is `width` mm, rests it on y = 0 and centres it.
 function fit(root, width) {

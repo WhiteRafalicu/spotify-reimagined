@@ -1664,7 +1664,6 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       for (const m of instList) m.instanceMatrix.needsUpdate = true;
     }
     busy = moving;
-    dbg.why = { cornerBusy, cam: Math.abs(cam.target - cam.y) > 0.05, spot: !!spot, queue: layerQueue.length, cornerAlive };
 
     const ledOn = !!(live && !live.gone && live.slot >= 0 && live.shown);
     led.visible = ledOn;
@@ -1912,7 +1911,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ why: dbg.why, busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {
