@@ -39,6 +39,28 @@ const SPINE_PX = [48, 768];
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
+// Quality presets. Auto picks one from the GPU (one lower on battery); the render scale then adapts
+// to the measured GPU time within it.
+export const QUALITY = {
+  high: { maxDpr: 2, msaa: 4, shadow: 2048, exits: 4, dust: true, pictureLights: 6, tvLight: true },
+  medium: { maxDpr: 1.5, msaa: 2, shadow: 1024, exits: 3, dust: true, pictureLights: 2, tvLight: true },
+  low: { maxDpr: 1, msaa: 0, shadow: 1024, exits: 2, dust: false, pictureLights: 0, tvLight: false },
+};
+const TIERS = ['low', 'medium', 'high'];
+
+function gpuName(renderer) {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  return String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '');
+}
+export function autoTier(renderer) {
+  const name = gpuName(renderer);
+  if (/swiftshader|llvmpipe|software|microsoft basic/i.test(name)) return 'low';
+  if (/mali|adreno|powervr|vivante|videocore|(uhd|hd) graphics/i.test(name)) return 'low';
+  if (/intel|iris|radeon\(tm\) graphics|radeon graphics|vega \d+ graphics|apple/i.test(name)) return 'medium';
+  return 'high';
+}
+
 function loadImage(url) {
   if (url.startsWith('data:')) {
     const img = new Image();
@@ -322,7 +344,6 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     canvas.remove();
     return null;
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.autoClear = false;
   renderer.info.autoReset = false; // counted per frame across all passes (see perf)
   renderer.setClearColor(0x0e0d0c, 1);
@@ -807,6 +828,108 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   ensureCapacity(1);
   wall.position.z = BACK_Z - 7;
 
+  // ---- Quality: presets plus a render scale that follows the measured GPU time.
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tierName = 'high';
+  let q = QUALITY.high;
+  let scale = 1;
+  let onBattery = false;
+  navigator.getBattery?.().then((b) => {
+    const upd = () => {
+      onBattery = !b.charging;
+      if (qualityMode === 'auto') applyQuality('auto');
+    };
+    b.addEventListener('chargingchange', upd);
+    upd();
+  });
+  let qualityMode = 'auto';
+  function basePixelRatio() {
+    return dbg.dpr || Math.min(window.devicePixelRatio || 1, q.maxDpr);
+  }
+  function applyQuality(mode) {
+    qualityMode = mode;
+    let name = mode;
+    if (mode === 'auto') {
+      name = autoTier(renderer);
+      if (onBattery) name = TIERS[Math.max(0, TIERS.indexOf(name) - 1)];
+    }
+    if (!QUALITY[name]) name = 'high';
+    const changed = name !== tierName;
+    tierName = name;
+    q = QUALITY[name];
+    if (rtMain.samples !== q.msaa) {
+      rtMain.samples = q.msaa;
+      rtMain.dispose();
+    }
+    if (key.shadow.mapSize.x !== q.shadow) {
+      key.shadow.mapSize.set(q.shadow, q.shadow);
+      key.shadow.map?.dispose();
+      key.shadow.map = null;
+    }
+    if (rodMat.defines.EXITS !== q.exits) {
+      rodMat.defines.EXITS = q.exits;
+      rodMat.needsUpdate = true;
+    }
+    dust.visible = q.dust && !reducedMotion;
+    deco.lights.forEach((l, k) => (l.visible = k < q.pictureLights));
+    corner?.setTvLight(q.tvLight);
+    if (changed) scale = 1;
+    renderer.setPixelRatio(basePixelRatio() * scale);
+    if (view.w > 1) layout();
+    shadowDirty = true;
+    wake();
+  }
+
+  // Adaptive render scale. GPU time per frame comes from a timer query where the driver offers one,
+  // otherwise from the gap between busy frames. Too slow: scale down; plenty of headroom: back up.
+  const adapt = { samples: [], cooldownUntil: 0, ext: null, open: null, pending: [] };
+  {
+    const gl = renderer.getContext();
+    adapt.ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  }
+  const GPU_BUDGET = 1000 / 60 * 0.75; // ms
+  function adaptBegin() {
+    if (!adapt.ext || dbg.timer || adapt.open) return;
+    const gl = renderer.getContext();
+    adapt.open = gl.createQuery();
+    gl.beginQuery(adapt.ext.TIME_ELAPSED_EXT, adapt.open);
+  }
+  function adaptEnd(frameGapMs, throttled) {
+    const gl = renderer.getContext();
+    if (adapt.open) {
+      gl.endQuery(adapt.ext.TIME_ELAPSED_EXT);
+      adapt.pending.push(adapt.open);
+      adapt.open = null;
+    }
+    if (adapt.ext) {
+      if (gl.getParameter(adapt.ext.GPU_DISJOINT_EXT)) {
+        for (const qq of adapt.pending) gl.deleteQuery(qq);
+        adapt.pending.length = 0;
+      }
+      while (adapt.pending.length && gl.getQueryParameter(adapt.pending[0], gl.QUERY_RESULT_AVAILABLE)) {
+        const qq = adapt.pending.shift();
+        adapt.samples.push(gl.getQueryParameter(qq, gl.QUERY_RESULT) / 1e6);
+        gl.deleteQuery(qq);
+      }
+    } else if (!throttled && frameGapMs < 200) adapt.samples.push(frameGapMs * 0.8);
+    if (adapt.samples.length < 45) return;
+    const sorted = adapt.samples.sort((a, b) => a - b);
+    const median = sorted[sorted.length >> 1];
+    adapt.samples = [];
+    const now = performance.now();
+    if (now < adapt.cooldownUntil) return;
+    let next = scale;
+    if (median > GPU_BUDGET * 1.15) next = Math.max(0.5, scale * Math.sqrt(GPU_BUDGET / median));
+    else if (median < GPU_BUDGET * 0.45 && scale < 1) next = Math.min(1, scale * 1.15);
+    next = Math.round(next * 20) / 20;
+    if (next !== scale) {
+      scale = next;
+      renderer.setPixelRatio(basePixelRatio() * scale);
+      layout();
+      adapt.cooldownUntil = now + 2500;
+    }
+  }
+
   // The TV corner under the shelf (only when the build bundled its models).
   const corner =
     assets.tv || assets.ps2 || assets.pad || assets.table
@@ -857,7 +980,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   const ledHolder = new THREE.Group();
   ledHolder.matrixAutoUpdate = false;
   ledHolder.add(led, ledLight);
-  ledHolder.visible = false;
+  led.visible = false;
   scene.add(ledHolder);
 
   const cases = new Map(); // uri -> case
@@ -1295,7 +1418,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     const px = pointer.over ? pointer.x : 0;
     const py = pointer.over ? pointer.y : 0;
     cam.x += (px * 30 - cam.x) * (1 - Math.exp(-dt * 2.5));
-    const drift = Math.sin(t * 0.21) * 6;
+    const drift = reducedMotion ? 0 : Math.sin(t * 0.21) * 6;
     const f = cornerView(cam.y);
     const ease = f * f * (3 - 2 * f);
     if (Math.abs(f - dollyF) > 0.002) {
@@ -1317,12 +1440,12 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       const halfVis = (camZ - fr.z) * tanHalf;
       camDY = (corner.standTopY - 30 + halfVis * 0.62 - cornerMid()) * ease;
     } else camDY = 0;
-    camera.position.set(camX + cam.x + drift, cam.y + camDY + py * 14 + Math.sin(t * 0.17) * 3, camZ);
+    camera.position.set(camX + cam.x + drift, cam.y + camDY + py * 14 + (reducedMotion ? 0 : Math.sin(t * 0.17) * 3), camZ);
     camera.lookAt(camX + cam.x * 0.3 + drift * 0.5, cam.y + camDY, 0);
     camera.updateMatrixWorld();
 
     // The key follows the scroll, snapped to whole shadow texels so its shadows don't shimmer.
-    const texel = (key.shadow.camera.top - key.shadow.camera.bottom) / LIGHT.shadowMap;
+    const texel = (key.shadow.camera.top - key.shadow.camera.bottom) / key.shadow.mapSize.y;
     const keyY = Math.round((cam.y - 30) / texel) * texel;
     if (keyY !== key.target.position.y) shadowDirty = true;
     key.target.position.set(0, keyY, 0);
@@ -1353,8 +1476,8 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       const fade = 1 - clamp(dollyF * 1.6, 0, 1); // the TV corner has its own light
       deco.lights.forEach((l, k) => {
         const r = first + (k >> 1);
-        l.visible = r < rowCount && fade > 0.02;
-        l.intensity = LIGHT.pictureIntensity * fade;
+        // Dimmed, never hidden: switching lights on and off would recompile every material.
+        l.intensity = r < rowCount ? LIGHT.pictureIntensity * fade : 0;
         l.position.set((k & 1 ? 1 : -1) * deco.unitW * 0.24, deco.boardY(r - 1) - BOARD / 2 - 14, DEPTH / 2 + 22);
       });
     }
@@ -1492,10 +1615,12 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     }
     busy = moving;
 
-    ledHolder.visible = !!(live && !live.gone && live.slot >= 0 && live.shown);
-    if (ledHolder.visible) {
+    const ledOn = !!(live && !live.gone && live.slot >= 0 && live.shown);
+    led.visible = ledOn;
+    ledLight.intensity = 0;
+    if (ledOn) {
       ledHolder.matrix.copy(posePool[live.slot]);
-      ledHolder.matrixWorld.copy(ledHolder.matrix);
+      ledHolder.updateMatrixWorld(true);
       const pulse = 0.5 + 0.5 * Math.sin(t * 3.1);
       ledMat.color.setRGB(0.12 + 0.2 * pulse, 0.84, 0.38 + 0.1 * pulse);
       ledLight.intensity = 0.6 + pulse * 0.9;
@@ -1519,6 +1644,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       shadowDirty = false;
     }
     const T = dbg.timer;
+    adaptBegin();
     renderer.setRenderTarget(rtMain);
     renderer.clear();
     T?.begin('scene');
@@ -1539,6 +1665,8 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     T?.end();
     T?.poll();
   }
+  let frameGap = 16;
+  let frameThrottled = false;
 
   // Opt-in profiling, from DevTools: __cdShelf.profile({ busy: true, timing: true, pixelRatio: 1 }).
   const dbg = { busy: false, timer: null };
@@ -1668,11 +1796,14 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       const interval = document.hasFocus() ? 1000 / 30 - 2 : 1000 / 15 - 2;
       if (last && now - last < interval) return;
     }
+    frameThrottled = !busy && !dbg.busy && now - activeAt > 1500;
+    frameGap = last ? now - last : 16;
     const dt = last ? Math.min((now - last) / 1000, 1 / 20) : 1 / 60;
     last = now;
     const t0 = performance.now();
     renderer.info.reset();
     step(dt);
+    adaptEnd(frameGap, frameThrottled);
     perf.cpu += performance.now() - t0;
     perf.frames++;
   };
@@ -1688,17 +1819,30 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
 
   const ro = new ResizeObserver(() => layout());
   ro.observe(container);
+  applyQuality(qualityMode);
   layout();
   cam.y = cam.target = topY();
   raf = requestAnimationFrame(tick);
 
   return {
     perf: () => perfReport(),
-    profile({ busy, timing, pixelRatio } = {}) {
+    // 'auto' | 'high' | 'medium' | 'low'
+    setQuality: (mode) => applyQuality(mode),
+    get quality() {
+      return { mode: qualityMode, tier: tierName, scale, gpu: gpuName(renderer) };
+    },
+    profile({ busy, timing, pixelRatio, baseDpr } = {}) {
       if (busy !== undefined) dbg.busy = busy;
+      // Pretend the screen has this pixel density (tests the adaptive scale).
+      if (baseDpr !== undefined) {
+        dbg.dpr = baseDpr || 0;
+        renderer.setPixelRatio(basePixelRatio() * scale);
+        layout();
+      }
       if (timing !== undefined) dbg.timer = timing ? gpuTimer() : null;
       if (pixelRatio !== undefined) {
         renderer.setPixelRatio(pixelRatio);
+        adapt.cooldownUntil = performance.now() + 1e9; // hold it while profiling
         layout();
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };

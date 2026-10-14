@@ -589,6 +589,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     osdTex.needsUpdate = true;
   }
 
+  let tvLight = true;
   // Returns true while the corner itself is still moving (so the shelf keeps shadows fresh).
   function update(dt, time, inView = true) {
     t = time;
@@ -597,9 +598,11 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     state.y += (state.targetY - state.y) * (1 - Math.exp(-dt * 5));
     group.position.y = state.y;
     // Off screen, the TV's light and picture do nothing: skip them (and the light's shading cost).
-    glow.visible = inView && screen.power > 0.01;
-    bias.visible = inView && !!tv;
-    bias.intensity = 2.2;
+    // Off screen, the TV's light does nothing. The area light (the costly one) is switched off there;
+    // its shader variant is pre-compiled (see prewarm). The bias light just dims, which keeps the
+    // scene's light count, and with it every material's shader, unchanged.
+    glow.visible = tvLight && inView && screen.power > 0.01;
+    bias.intensity = inView && tv ? 2.2 : 0;
     if (!inView) return moving;
     board?.update(time, inView, screen.info?.duration);
     if (tvRoot) {
@@ -699,6 +702,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     },
     setTrack,
     setStack,
+    setTvLight(on) {
+      tvLight = on;
+    },
     get halfW() {
       return lay.halfW + 40;
     },

@@ -143,6 +143,14 @@ function App() {
   const [failed, setFailed] = useState(false);
   const [host, setHost] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [quality, setQuality] = useState(() => {
+    try {
+      return localStorage.getItem('cd-shelf:quality') || 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const [tier, setTier] = useState(null);
   const arrivals = useRef(null);
   const now = usePlayer();
   const worldRef = useRef(null);
@@ -193,6 +201,8 @@ function App() {
       assets,
     });
     s?.setNowPlaying(nowTrack());
+    s?.setQuality(quality);
+    if (s) setTier(s.quality.tier);
     if (!s) setFailed(true);
     shelf.current = s;
     window.__cdShelf = s; // handy from DevTools
@@ -237,6 +247,14 @@ function App() {
       events.removeListener('update', onUpdate);
     };
   }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('cd-shelf:quality', quality);
+    } catch {}
+    if (!shelf.current) return;
+    shelf.current.setQuality(quality);
+    setTier(shelf.current.quality.tier);
+  }, [quality]);
   useEffect(() => {
     shelf.current?.setLive(now.context);
   }, [now.context, shown, host]);
@@ -298,6 +316,12 @@ function App() {
             <option value="played">Recently played</option>
             <option value="artist">Artist</option>
             <option value="name">Title</option>
+          </select>
+          <select className="cds-chip" value={quality} onChange={(e) => setQuality(e.target.value)} title="Rendering quality">
+            <option value="auto">{`Quality: Auto${tier && quality === 'auto' ? ` (${tier})` : ''}`}</option>
+            <option value="high">Quality: High</option>
+            <option value="medium">Quality: Medium</option>
+            <option value="low">Quality: Low</option>
           </select>
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             Spotify home

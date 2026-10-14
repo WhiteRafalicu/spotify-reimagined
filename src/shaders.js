@@ -224,7 +224,9 @@ export const ROD_FRAG = `
     return vec3(t, n);
   }
 
-  const int EXITS = 4;
+  #ifndef EXITS
+    #define EXITS 4
+  #endif
   vec4 throughRod(vec3 P, vec3 N, vec3 I, float spread) {
     float n = uIor;
     vec3 dir = refract(I, N, 1.0 / n);
