@@ -52,19 +52,45 @@ function blankCover(name) {
   return c.toDataURL('image/jpeg', 0.9);
 }
 
-async function allContents(filter) {
+// Pages of 500; onPage() after each, so a big library starts filling the shelf right away.
+async function allContents(filter, onPage) {
   const L = Spicetify.Platform.LibraryAPI;
   const out = [];
-  for (let offset = 0; ; offset += 50) {
-    const r = await L.getContents({ filters: [filter], limit: 50, offset, flattenTree: true });
+  for (let offset = 0; ; offset += 500) {
+    const r = await L.getContents({ filters: [filter], limit: 500, offset, flattenTree: true });
     out.push(...r.items);
+    onPage?.(out);
     if (!r.items.length || out.length >= r.totalLength) break;
   }
   return out;
 }
 
-export async function loadLibrary() {
-  const [albums, playlists] = await Promise.all([allContents('0'), allContents('2')]);
+export async function loadLibrary(onProgress) {
+  const raw = { albums: [], playlists: [] };
+  let pending = 0;
+  const progress = () => {
+    if (!onProgress || pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      onProgress(toItems(raw.albums, raw.playlists));
+    });
+  };
+  await Promise.all([
+    allContents('0', (a) => ((raw.albums = a), progress())).then((a) => (raw.albums = a)),
+    allContents('2', (p) => ((raw.playlists = p), progress())).then((p) => (raw.playlists = p)),
+  ]);
+  if (pending) cancelAnimationFrame(pending);
+  return toItems(raw.albums, raw.playlists);
+}
+
+// Covers for coverless playlists, drawn once per name.
+const blanks = new Map();
+const blankFor = (name) => {
+  if (!blanks.has(name)) blanks.set(name, blankCover(name));
+  return blanks.get(name);
+};
+
+function toItems(albums, playlists) {
   const items = [];
   for (const a of albums) {
     if (a.type !== 'album') continue;
@@ -83,7 +109,7 @@ export async function loadLibrary() {
   }
   for (const p of playlists) {
     if (p.type !== 'playlist') continue;
-    const img = toHttps(p.images?.[0]?.url) || blankCover(p.name);
+    const img = toHttps(p.images?.[0]?.url) || blankFor(p.name);
     items.push({
       kind: 'playlist',
       uri: p.uri,

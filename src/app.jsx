@@ -150,7 +150,8 @@ function App() {
 
   useEffect(() => {
     injectStyle();
-    loadLibrary()
+    // Pages appear as they arrive, so a big library doesn't sit on an empty shelf.
+    loadLibrary((partial) => setItems((cur) => (cur && cur.length >= partial.length ? cur : partial)))
       .then(setItems)
       .catch((e) => {
         console.error('[cd-shelf]', e);

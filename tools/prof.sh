@@ -16,5 +16,5 @@ timeout 20 node tools/wheel.mjs $POS 9000 10; sleep 3
 echo "$1 corner:    $(E "$M")"
 timeout 20 node tools/wheel.mjs $POS -9000 10; sleep 2
 E 'const base = await (async () => { const L = Spicetify.Platform.LibraryAPI; const r = await L.getContents({ filters: ["0"], limit: 50, offset: 0 }); return r.items.filter(i => i.type === "album"); })(); const fake = []; for (let i = 0; i < 2000; i++) { const a = base[i % base.length]; const img = a.images?.[0]?.url; fake.push({ kind: "album", uri: a.uri + ":fake" + i, name: a.name + " " + i, artist: a.artists?.[0]?.name || "", thumb: img, art: img, addedAt: "" }); } window.__cdShelf.setItems(fake); await new Promise(r => setTimeout(r, 15000)); return 1' >/dev/null
-echo "$1 2000 discs: $(E "$M") heap=$(E 'return (performance.memory.usedJSHeapSize/1e6).toFixed(0)+"MB"')"
+echo "$1 2000 discs: $(E "$M") heap=$(timeout 20 node tools/heap.mjs)"
 E 'window.__cdShelf.profile({ busy: false, timing: false }); location.reload(); return 1' >/dev/null

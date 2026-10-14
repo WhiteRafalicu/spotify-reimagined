@@ -33,7 +33,9 @@ const SPRING_K = 170;
 const SPRING_C = 20;
 const PROPS = ['x', 'y', 'z', 'ry', 'rz', 's', 'lid'];
 
-const SPINE_PX = [64, 1024];
+// Per-slot texture layers: small enough that a pool of a few hundred stays cheap, large enough to
+// stay sharp at shelf size.
+const SPINE_PX = [48, 768];
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
@@ -111,6 +113,8 @@ function drawSpine(canvas, item, img) {
   g.save();
   g.translate(w / 2, 0);
   g.rotate(Math.PI / 2);
+  const k = w / 64; // drawn at 64 px wide, scaled to the layer
+  g.scale(k, k);
   g.textBaseline = 'middle';
   g.shadowColor = 'rgba(0,0,0,0.8)';
   g.shadowBlur = 3;
@@ -122,7 +126,7 @@ function drawSpine(canvas, item, img) {
   const used = g.measureText(artist).width;
   g.font = `600 30px ${font}`;
   g.fillStyle = 'rgba(255,255,255,0.82)';
-  g.fillText(fitText(g, item.name, h - 90 - used), 34 + used + 18, 1);
+  g.fillText(fitText(g, item.name, h / k - 90 - used), 34 + used + 18, 1);
   g.restore();
 }
 
@@ -507,12 +511,16 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   for (const g of [trayParts.rods, trayParts.sheets, lidParts.rods, lidParts.sheets]) own(g);
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   let capacity = 0;
+  let layerAttr = null; // per instance: which texture layer its spine and cover read
+  let PLACEHOLDER = 0;
+  let instDirty = false; // a slot was freed: instance buffers need re-uploading
+  let drawCount = -1; // instances drawn: up to the highest slot in use
   let inst = null;
   let instList = [];
   let parts = null;
   let coverArr = null;
   let spineArr = null;
-  const COVER_PX = 192;
+  const COVER_PX = 128;
   const arrUniforms = { cover: { value: null }, spine: { value: null } };
   // A texture array of `depth` layers, keeping the layers of `old` when it grows.
   function makeArray(w, h, depth, old, fill) {
@@ -523,13 +531,15 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       data[i + 2] = fill[2];
       data[i + 3] = 255;
     }
-    if (old) data.set(old.image.data.subarray(0, Math.min(old.image.data.length, data.length)));
+    // Keep the old case layers (not the old placeholder, which was the last one).
+    if (old) data.set(old.image.data.subarray(0, Math.min(old.image.data.length - w * h * 4, data.length - w * h * 4)));
     const tex = new THREE.DataArrayTexture(data, w, h, depth);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.generateMipmaps = true;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    // No mipmaps: regenerating them would touch every layer on each write. Layers are sized close to
+    // their on-screen size, so plain linear filtering holds up.
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.anisotropy = 8;
     tex.needsUpdate = true;
     old?.dispose();
     return tex;
@@ -552,7 +562,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     const m = own(new THREE.MeshStandardMaterial({ ...params, map: unitTex }));
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uArr = arrUniforms[which];
-      sh.vertexShader = sh.vertexShader.replace('void main() {', 'flat varying int vLayer;\nvoid main() {\n  vLayer = gl_InstanceID;');
+      sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute float aLayer;\nflat varying int vLayer;\nvoid main() {\n  vLayer = int(aLayer + 0.5);');
       let f = sh.fragmentShader
         .replace('void main() {', 'precision highp sampler2DArray;\nuniform sampler2DArray uArr;\nflat varying int vLayer;\nvoid main() {')
         .replace('#include <map_fragment>', 'vec4 arrTexel = texture(uArr, vec3(vMapUv.x, 1.0 - vMapUv.y, float(vLayer)));\n  diffuseColor *= arrTexel;');
@@ -565,7 +575,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   let capGen = 0;
   function ensureCapacity(n) {
     if (n <= capacity) return;
-    capacity = Math.max(128, 2 ** Math.ceil(Math.log2(n)));
+    capacity = Math.min(MAX_SLOTS, Math.ceil(Math.max(64, n) / 64) * 64);
     if (inst) for (const m of Object.values(inst)) (glass.remove(m), m.dispose());
     const make = (geo, mat, order) => {
       const m = new THREE.InstancedMesh(geo, mat, capacity);
@@ -592,8 +602,15 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     };
     // The parts inside the cases, also instanced: each instance reads its own layer of the cover
     // and spine texture arrays (layer = instance index = case slot).
-    coverArr = makeArray(COVER_PX, COVER_PX, capacity, coverArr, [44, 44, 46]);
-    spineArr = makeArray(SPINE_PX[0], SPINE_PX[1], capacity, spineArr, [28, 28, 31]);
+    // One extra layer at the end: the neutral placeholder a case shows until its own is written.
+    coverArr = makeArray(COVER_PX, COVER_PX, capacity + 1, coverArr, [44, 44, 46]);
+    spineArr = makeArray(SPINE_PX[0], SPINE_PX[1], capacity + 1, spineArr, [28, 28, 31]);
+    const layers = new Float32Array(capacity).fill(capacity);
+    if (layerAttr) for (let i = 0; i < layerAttr.count; i++) if (layerAttr.array[i] !== PLACEHOLDER) layers[i] = layerAttr.array[i];
+    PLACEHOLDER = capacity;
+    layerAttr = new THREE.InstancedBufferAttribute(layers, 1);
+    layerAttr.setUsage(THREE.DynamicDrawUsage);
+    for (const g of [bookGeo, labelGeo, discGeo]) g.setAttribute('aLayer', layerAttr);
     arrUniforms.cover.value = coverArr;
     arrUniforms.spine.value = spineArr;
     if (parts) for (const m of Object.values(parts)) (scene.remove(m), m.dispose());
@@ -613,9 +630,25 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       under: part(discGeo, discUnder, false),
     };
     instList = [...Object.values(inst), ...Object.values(parts)];
+    // Per-slot hit boxes and poses; new slots join the free list.
+    for (let i = slotOwner.length; i < capacity; i++) {
+      slotOwner.push(null);
+      const hit = new THREE.Mesh(hitGeo, hitMat);
+      hit.matrixAutoUpdate = false;
+      hitPool.push(hit);
+      posePool.push(new THREE.Matrix4());
+      freeSlots.push(i);
+    }
+    freeSlots.sort((a, b) => b - a); // pop() hands out the lowest slot first
     capGen++; // every case rewrites itself into the new buffers (see step)
+    drawCount = -1;
   }
-  let nextSlot = 0;
+  // The pool: slotOwner[i] is the case drawn in instance/layer i (or null).
+  const slotOwner = [];
+  const freeSlots = [];
+  const hitPool = [];
+  const posePool = [];
+  const MAX_SLOTS = 4096;
 
   // What sits inside each case: the booklet under the lid, the spine of the back inlay just inside
   // the hinge-side rail, and the disc printed with the cover.
@@ -749,8 +782,8 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   const NX = new THREE.Vector3(-1, 0, 0);
   const NY = new THREE.Vector3(0, -1, 0);
   const _k = new THREE.Color();
-  wall.position.z = BACK_Z - 7;
   ensureCapacity(1);
+  wall.position.z = BACK_Z - 7;
 
   // The TV corner under the shelf (only when the build bundled its models).
   const corner =
@@ -798,6 +831,12 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   led.position.set(-HALF - 0.9, -HALF + 10, -0.1); // on the spine, near the bottom
   const ledLight = new THREE.PointLight(0x1ed760, 0, 70, 1);
   ledLight.position.set(-HALF - 12, -HALF + 12, 0);
+  // Rides on the playing case's pose (see step).
+  const ledHolder = new THREE.Group();
+  ledHolder.matrixAutoUpdate = false;
+  ledHolder.add(led, ledLight);
+  ledHolder.visible = false;
+  scene.add(ledHolder);
 
   const cases = new Map(); // uri -> case
   const boards = [];
@@ -837,51 +876,137 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   let last = 0;
   let t = 0;
 
+  // A case is just a record until its row comes into view and it takes a slot (see acquire).
   function makeCase(item) {
-    const slot = nextSlot++;
-    ensureCapacity(nextSlot);
-    // The spine (title text now, the cover's colours once it loads) and the cover, into this
-    // case's layer of the texture arrays.
-    drawSpine(spineScratch, item, null);
-    writeLayer(spineArr, slot, spineScratch);
-
-    // Groups hold the case's pose (cd-case coordinates), for the live LED to ride on.
-    const group = new THREE.Group();
-    group.matrixAutoUpdate = false;
-    const lidGroup = new THREE.Group();
-    lidGroup.matrixAutoUpdate = false;
-    scene.add(group, lidGroup);
-
-    const hit = new THREE.Mesh(hitGeo, hitMat);
-    hit.matrixAutoUpdate = false;
-
-    const c = {
+    return {
       item,
-      slot,
-      group,
-      lidGroup,
-      hit,
-      cur: { x: 0, y: 600, z: 0, ry: 0, rz: 0, s: 1, lid: 0 },
+      slot: -1,
+      slotGen: 0,
+      layered: false,
+      cur: { x: 0, y: 0, z: 0, ry: 0, rz: 0, s: 1, lid: 0 },
       vel: { x: 0, y: 0, z: 0, ry: 0, rz: 0, s: 0, lid: 0 },
       target: { x: 0, y: 0, z: 0, ry: 0, rz: 0, s: 1, lid: 0 },
       home: { x: 0, y: 0 },
       index: -1,
       gone: false,
+      fresh: true,
+      ready: null,
     };
-    hit.userData.case = c;
-    c.ready = loadCover(() => loadImage(item.thumb))
+  }
+
+  // Covers, decoded once and kept for a while so rows scrolling back in don't refetch them; and
+  // the finished layer pixels (spine + cover) for the cases seen most recently.
+  const imgCache = new Map(); // thumb url -> Promise<HTMLImageElement>
+  const layerCache = new Map(); // uri -> { spine: Uint8ClampedArray, cover: Uint8ClampedArray }
+  const touch = (map, key, val, limit) => {
+    map.delete(key);
+    map.set(key, val);
+    while (map.size > limit) map.delete(map.keys().next().value);
+  };
+  function coverImage(item) {
+    let p = imgCache.get(item.thumb);
+    if (!p) {
+      p = loadCover(() => loadImage(item.thumb)).then((img) => {
+        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+        return img;
+      });
+      p.catch(() => imgCache.delete(item.thumb));
+    }
+    touch(imgCache, item.thumb, p, Math.max(256, capacity * 2));
+    return p;
+  }
+  function pixels(src, w, h) {
+    layerCanvas.width = w;
+    layerCanvas.height = h;
+    layerCtx.drawImage(src, 0, 0, w, h);
+    return layerCtx.getImageData(0, 0, w, h).data;
+  }
+  function putLayer(tex, layer, data) {
+    const { width: w, height: h } = tex.image;
+    tex.image.data.set(data, layer * w * h * 4);
+    tex.addLayerUpdate(layer);
+    tex.needsUpdate = true;
+  }
+
+  // Layer writes queued when slots are handed out, done within a small time budget each frame.
+  const layerQueue = [];
+  function acquire(c) {
+    if (c.slot >= 0) return true;
+    if (!freeSlots.length) return false;
+    c.slot = freeSlots.pop();
+    c.slotGen++;
+    c.layered = false;
+    c.shown = undefined;
+    slotOwner[c.slot] = c;
+    hitPool[c.slot].userData.case = c;
+    setLayer(c.slot, PLACEHOLDER);
+    layerQueue.push(c);
+    // First appearance: drop in from a little above (unless it's arriving from a save).
+    if (c.fresh && !c.hold) {
+      c.fresh = false;
+      targetFor(c);
+      Object.assign(c.cur, c.target, { y: c.target.y + 160 + Math.random() * 220, z: 20 });
+      Object.assign(c.vel, { x: 0, y: -Math.random() * 200, z: 0, ry: 0, rz: 0, s: 0, lid: 0 });
+    } else if (!c.hold) {
+      // Coming back into view: it was sitting at home all along.
+      targetFor(c);
+      Object.assign(c.cur, c.target);
+      for (const p of PROPS) c.vel[p] = 0;
+    }
+    return true;
+  }
+  function release(c) {
+    if (c.slot < 0) return;
+    for (const m of instList) m.setMatrixAt(c.slot, ZERO);
+    contacts.setMatrixAt(c.slot, ZERO);
+    slotOwner[c.slot] = null;
+    hitPool[c.slot].userData.case = null;
+    freeSlots.push(c.slot);
+    c.slot = -1;
+    c.shown = false;
+    c.layered = false;
+    instDirty = true;
+  }
+  function setLayer(slot, layer) {
+    if (layerAttr.array[slot] === layer) return;
+    layerAttr.array[slot] = layer;
+    layerAttr.needsUpdate = true;
+  }
+  function writeLayers(c) {
+    const slot = c.slot;
+    const gen = c.slotGen;
+    const cached = layerCache.get(c.item.uri);
+    if (cached) {
+      putLayer(spineArr, slot, cached.spine);
+      putLayer(coverArr, slot, cached.cover);
+      c.layered = true;
+      setLayer(slot, slot);
+      if (cached.final) return;
+    } else {
+      // Title text right away; the cover's colours follow when it loads.
+      drawSpine(spineScratch, c.item, null);
+      putLayer(spineArr, slot, spineCtx.getImageData(0, 0, SPINE_PX[0], SPINE_PX[1]).data);
+      putLayer(coverArr, slot, blankCover);
+      c.layered = true;
+      setLayer(slot, slot);
+    }
+    c.ready = coverImage(c.item)
       .then((img) => {
         if (disposed) return;
-        drawSpine(spineScratch, item, img);
-        writeLayer(spineArr, c.slot, spineScratch);
-        writeLayer(coverArr, c.slot, img);
-        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+        drawSpine(spineScratch, c.item, img);
+        const entry = { spine: spineCtx.getImageData(0, 0, SPINE_PX[0], SPINE_PX[1]).data, cover: pixels(img, COVER_PX, COVER_PX), final: true };
+        touch(layerCache, c.item.uri, entry, Math.max(128, capacity));
+        if (c.slot !== slot || c.slotGen !== gen) return;
+        putLayer(spineArr, slot, entry.spine);
+        putLayer(coverArr, slot, entry.cover);
+        wake();
       })
       .catch(() => {});
-    return c;
   }
   const spineScratch = document.createElement('canvas');
   [spineScratch.width, spineScratch.height] = SPINE_PX;
+  const spineCtx = spineScratch.getContext('2d', { willReadFrequently: true });
+  const blankCover = new Uint8ClampedArray(COVER_PX * COVER_PX * 4).fill(40);
 
   function layout() {
     const w = container.clientWidth || 1;
@@ -1030,6 +1155,13 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   let spotlit = null;
   function arrive(c) {
     c.hold = true;
+    c.fresh = false;
+    acquire(c);
+    if (c.slot >= 0 && !c.layered) {
+      const i = layerQueue.indexOf(c);
+      if (i >= 0) layerQueue.splice(i, 1);
+      writeLayers(c);
+    }
     const go = () => {
       if (!c.hold || c.gone) return;
       c.hold = false;
@@ -1043,51 +1175,45 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       const y = rowY(row);
       if (y > cam.y + view.visH * 0.32 || y < cam.y - view.visH * 0.32) cam.target = clamp(y - 10, bottomY(), topY());
     };
-    Promise.race([c.ready, new Promise((r) => setTimeout(r, 1500))]).then(go, go);
+    Promise.race([c.ready || Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]).then(go, go);
   }
 
   function setItems(items, { arrivals } = {}) {
     wake();
     const keep = new Set(items.map((i) => i.uri));
     for (const [uri, c] of cases) {
-      if (!keep.has(uri) && !c.gone) {
-        c.gone = true;
-        c.index = -1;
-        if (hovered === c) hovered = null;
-      }
+      if (keep.has(uri) || c.gone) continue;
+      c.index = -1;
+      if (hovered === c) hovered = null;
+      if (live === c) live = null;
+      // Off screen, a removed case simply goes; on screen it shrinks away first (see step).
+      if (c.slot >= 0) c.gone = true;
+      else cases.delete(uri);
     }
     order = items.map((item) => {
       let c = cases.get(item.uri);
       if (!c) {
         c = makeCase(item);
         cases.set(item.uri, c);
-        c.fresh = true;
       } else if (c.gone) {
         c.gone = false;
-        c.group.visible = true;
         c.fresh = true;
       }
+      c.item = item;
       return item.uri;
     });
     place();
     corner?.setStack(items.slice(0, 5).map((i) => i.thumb).filter((u) => u && !u.startsWith('data:')));
-    // First load: everything drops into its slot from a little above, each at its own pace.
-    // Later saves slide in from the front instead (see arrive).
-    for (const uri of order) {
-      const c = cases.get(uri);
-      if (!c.fresh) continue;
-      c.fresh = false;
-      if (arrivals?.has(uri)) {
-        arrive(c);
-        continue;
-      }
-      Object.assign(c.cur, { x: c.home.x, y: c.home.y + 160 + Math.random() * 220, z: 20, ry: 0, rz: 0, s: 1 });
-      Object.assign(c.vel, { x: 0, y: -Math.random() * 200, z: 0, ry: 0, rz: 0, s: 0 });
-    }
+    // A disc just saved slides in from the front (see arrive); the rest drop into place as their
+    // rows come into view (see acquire).
+    if (arrivals) for (const uri of arrivals) if (cases.has(uri)) arrive(cases.get(uri));
   }
 
   function targets() {
-    for (const c of cases.values()) {
+    for (const c of slotOwner) if (c) targetFor(c);
+  }
+  function targetFor(c) {
+    {
       const tg = c.target;
       if (c.gone) {
         tg.x = c.home.x;
@@ -1097,7 +1223,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
         tg.rz = 0;
         tg.s = 0.001;
         tg.lid = 0;
-        continue;
+        return;
       }
       tg.x = c.home.x;
       tg.y = c.home.y;
@@ -1114,7 +1240,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
         tg.y = camera.position.y;
         tg.z = camera.position.z - 600;
         tg.ry = -Math.PI / 2 * clear;
-        continue;
+        return;
       }
       if (hovered && hovered !== pulled) {
         const d = c.index - hovered.index;
@@ -1211,15 +1337,43 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     }
     const cornerBusy = corner?.update(dt, t, corner && corner.standTopY + 450 > lookY - seeHalf && corner.floorY < lookY + seeHalf);
     if (cornerBusy) shadowDirty = true;
+    // The rows in view (plus one either side) hold slots; everything else is released.
+    const rowLo = clamp(Math.floor((-(lookY + seeHalf)) / ROW_PITCH) - 1, 0, Math.max(0, rowCount - 1));
+    const rowHi = clamp(Math.ceil((-(lookY - seeHalf)) / ROW_PITCH) + 1, 0, Math.max(0, rowCount - 1));
+    const want = (rowHi - rowLo + 1) * perRow + 24;
+    if (want > capacity && capacity < MAX_SLOTS) ensureCapacity(want);
+    for (let i = rowLo * perRow; i < Math.min(order.length, (rowHi + 1) * perRow); i++) acquire(cases.get(order[i]));
+    for (const c of [hovered, pulled, spot]) if (c && !c.gone) acquire(c);
+    // Layer writes for newly slotted cases, a few milliseconds' worth per frame.
+    // More of it while the view is still (nothing to keep smooth), less while scrolling.
+    const budget = performance.now() + (Math.abs(cam.target - cam.y) > 1 ? 3 : 7);
+    while (layerQueue.length && performance.now() < budget) {
+      const c = layerQueue.shift();
+      if (c.slot >= 0 && !c.layered) writeLayers(c);
+    }
+    let moving = cornerBusy || Math.abs(cam.target - cam.y) > 0.05 || !!spot || layerQueue.length > 0;
+
     targets();
     const sdt = dt / 2;
-    let wrote = false;
-    let moving = cornerBusy || Math.abs(cam.target - cam.y) > 0.05 || !!spot;
-    for (const c of cases.values()) {
-      if (c.hold || (c.gone && c.cur.s < 0.01)) {
+    let wrote = instDirty;
+    instDirty = false;
+    for (let slot = 0; slot < slotOwner.length; slot++) {
+      const c = slotOwner[slot];
+      if (!c) continue;
+      const row = c.index >= 0 ? Math.floor(c.index / perRow) : -1;
+      const forced = c === hovered || c === pulled || c === spot || c.hold;
+      if (c.gone && c.cur.s < 0.01) {
+        release(c);
+        cases.delete(c.item.uri);
+        continue;
+      }
+      if (!forced && !c.gone && (row < rowLo || row > rowHi)) {
+        release(c);
+        continue;
+      }
+      if (c.hold) {
         if (c.shown !== false || c.gen !== capGen) {
           c.gen = capGen;
-          c.group.visible = c.lidGroup.visible = false;
           for (const m of instList) m.setMatrixAt(c.slot, ZERO);
           contacts.setMatrixAt(c.slot, ZERO);
           c.shown = false;
@@ -1248,30 +1402,16 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
         moving = true;
         shadowDirty = true;
       }
-      const inView = Math.abs(c.cur.y - lookY) < seeHalf;
-      if (!inView) {
-        if (c.shown !== false || c.gen !== capGen) {
-          c.gen = capGen;
-          c.group.visible = c.lidGroup.visible = false;
-          for (const m of instList) m.setMatrixAt(c.slot, ZERO);
-          contacts.setMatrixAt(c.slot, ZERO);
-          c.shown = false;
-          wrote = true;
-        }
-        continue;
-      }
       if (settled && c.shown && c.gen === capGen) continue;
       c.shown = true;
       c.gen = capGen;
-      c.group.visible = c.lidGroup.visible = true;
       wrote = true;
       const { x, y, z, ry, rz, s, lid } = c.cur;
       _q.setFromEuler(_e.set(0, ry, rz));
       _m.compose(_p.set(x, y, z), _q, _s.setScalar(Math.max(0.001, s))).multiply(STAND);
       _lid.copy(_m).multiply(hingeIn).multiply(_r.makeRotationY(-Math.max(0, lid))).multiply(hingeOut);
-      c.group.matrix.copy(_m);
-      c.lidGroup.matrix.copy(_lid);
-      c.hit.matrixWorld.copy(_m);
+      posePool[c.slot].copy(_m);
+      hitPool[c.slot].matrixWorld.copy(_m);
       inst.trayRods.setMatrixAt(c.slot, _m);
       inst.traySheets.setMatrixAt(c.slot, _m);
       inst.lidRods.setMatrixAt(c.slot, _lid);
@@ -1289,6 +1429,19 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       contacts.setMatrixAt(c.slot, k > 0.01 ? _dm : ZERO);
       contacts.setColorAt(c.slot, _k.setRGB(k, k, k));
     }
+    // Draw only up to the highest slot in use.
+    let top = 0;
+    for (let i = slotOwner.length - 1; i >= 0; i--) {
+      if (slotOwner[i]) {
+        top = i + 1;
+        break;
+      }
+    }
+    if (top !== drawCount) {
+      drawCount = top;
+      for (const m of instList) m.count = top;
+      contacts.count = top;
+    }
     if (wrote) {
       contacts.instanceMatrix.needsUpdate = true;
       if (contacts.instanceColor) contacts.instanceColor.needsUpdate = true;
@@ -1296,7 +1449,10 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     }
     busy = moving;
 
-    if (live && !live.gone) {
+    ledHolder.visible = !!(live && !live.gone && live.slot >= 0 && live.shown);
+    if (ledHolder.visible) {
+      ledHolder.matrix.copy(posePool[live.slot]);
+      ledHolder.matrixWorld.copy(ledHolder.matrix);
       const pulse = 0.5 + 0.5 * Math.sin(t * 3.1);
       ledMat.color.setRGB(0.12 + 0.2 * pulse, 0.84, 0.38 + 0.1 * pulse);
       ledLight.intensity = 0.6 + pulse * 0.9;
@@ -1398,7 +1554,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     if (!pointer.over) return null;
     raycaster.setFromCamera(pointer.ndc, camera);
     const meshes = [];
-    for (const c of cases.values()) if (!c.gone && c.group.visible) meshes.push(c.hit);
+    for (const c of slotOwner) if (c && !c.gone && c.shown) meshes.push(hitPool[c.slot]);
     const hit = raycaster.intersectObjects(meshes, false)[0];
     return hit ? hit.object.userData.case : null;
   }
@@ -1504,7 +1660,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {
@@ -1514,12 +1670,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       const c = uri ? cases.get(uri) : null;
       if (c === live) return;
       live = c || null;
-      if (live) {
-        live.group.add(led, ledLight);
-      } else {
-        led.removeFromParent();
-        ledLight.removeFromParent();
-      }
+      wake();
     },
     // Fly a case out toward the viewer (also used when a case is opened from the player bar).
     pullOut,
