@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8">
+<script type="importmap">{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }</script>
+<body style="margin:0;background:#fff">
+<script type="module">
+// Straight-on orthographic view of the TV in its own (glTF node) coordinates, with a 1 cm grid,
+// so the screen's edges can be read off the image.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const W = 800, H = 720;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+r.setSize(W, H);
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+scene.add(new THREE.AmbientLight(0xffffff, 2.5));
+const g = await new GLTFLoader().loadAsync('/assets/crt_tv.glb');
+scene.add(g.scene);
+g.scene.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(g.scene);
+const view = new URLSearchParams(location.search).get('view') || 'front';
+// Pick the face the screen is on from the query: front = +x in node space after transforms.
+const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+const half = Math.max(s.y, s.z) * 0.55;
+const cam = new THREE.OrthographicCamera(-half * W / H, half * W / H, half, -half, 0.01, 10);
+const dirs = { front: [1, 0, 0], back: [-1, 0, 0], left: [0, 0, 1], right: [0, 0, -1] };
+const d = new THREE.Vector3(...dirs[view]);
+cam.position.copy(c).addScaledVector(d, 3);
+cam.lookAt(c);
+const grid = new THREE.GridHelper(1, 100, 0xff0000, 0x00aaff);
+grid.rotation.z = Math.PI / 2;
+grid.position.copy(c).addScaledVector(d, s.x);
+grid.material.depthTest = false;
+grid.renderOrder = 9;
+scene.add(grid);
+r.render(scene, cam);
+document.title = JSON.stringify({ min: box.min.toArray().map((v) => +v.toFixed(4)), max: box.max.toArray().map((v) => +v.toFixed(4)), center: c.toArray().map((v) => +v.toFixed(4)), half: +half.toFixed(4) });
+window.__done = true;
+</script>

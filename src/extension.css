@@ -1,0 +1,75 @@
+/* The library sidebar is gone: the shelf is the library. Its grid column collapses to nothing. */
+.Root__nav-bar {
+  display: none !important;
+}
+.Root__top-container {
+  grid-template-columns: 0px minmax(0, 1fr) auto !important;
+}
+
+/* The player bar's cover, pressed onto a CD: round, a clear hub with a hole, a rainbow sheen. */
+.main-nowPlayingWidget-coverArt {
+  position: relative;
+  border-radius: 50% !important;
+  overflow: visible !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+.main-nowPlayingWidget-coverArt .cover-art {
+  border-radius: 50% !important;
+  overflow: hidden;
+  background: #c9ccd1 !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 3px 10px rgba(0, 0, 0, 0.55) !important;
+  -webkit-mask: radial-gradient(circle, transparent 0 9%, #000 9.5%);
+  mask: radial-gradient(circle, transparent 0 9%, #000 9.5%);
+  animation: cds-spin 1.6s linear infinite;
+  animation-play-state: paused;
+}
+.main-nowPlayingWidget-coverArt .cover-art img {
+  border-radius: 50% !important;
+  /* The print stops short of the clear hub, like a real disc. */
+  -webkit-mask: radial-gradient(circle, transparent 0 26%, #000 27%);
+  mask: radial-gradient(circle, transparent 0 26%, #000 27%);
+}
+body.cds-playing .main-nowPlayingWidget-coverArt .cover-art {
+  animation-play-state: running;
+}
+/* The light doesn't turn with the disc: the sheen and hub ring sit above it, still. */
+.main-nowPlayingWidget-coverArt::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle, transparent 0 25%, rgba(255, 255, 255, 0.5) 26%, transparent 28.5%),
+    conic-gradient(
+      from 200deg,
+      transparent 0deg,
+      rgba(255, 80, 200, 0.28) 20deg,
+      rgba(80, 220, 255, 0.32) 40deg,
+      rgba(255, 240, 120, 0.25) 60deg,
+      transparent 85deg,
+      transparent 180deg,
+      rgba(120, 255, 180, 0.22) 200deg,
+      rgba(160, 120, 255, 0.28) 220deg,
+      transparent 250deg
+    );
+  -webkit-mask: radial-gradient(circle, transparent 0 9%, #000 9.5%);
+  mask: radial-gradient(circle, transparent 0 9%, #000 9.5%);
+  mix-blend-mode: screen;
+}
+[data-testid='cover-art-button'] {
+  border-radius: 50% !important;
+}
+@keyframes cds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .main-nowPlayingWidget-coverArt .cover-art {
+    animation: none;
+  }
+}

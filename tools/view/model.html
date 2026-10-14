@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8">
+<script type="importmap">{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }</script>
+<body style="margin:0;background:#888">
+<script type="module">
+// Three-quarter view of a model with labelled axes (red +x, green +y, blue +z), for orientation.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(640, 480);
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x888888);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 3));
+const g = await new GLTFLoader().loadAsync('/assets/' + q.get('m') + '.glb');
+scene.add(g.scene);
+g.scene.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(g.scene);
+const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+const k = Math.max(s.x, s.y, s.z);
+scene.add(new THREE.AxesHelper(k * 0.9).translateX(box.min.x).translateY(box.min.y).translateZ(box.min.z));
+const cam = new THREE.PerspectiveCamera(35, 640 / 480, k * 0.01, k * 20);
+cam.position.copy(c).add(new THREE.Vector3(1.1, 0.8, 1.6).multiplyScalar(k * 1.3));
+cam.lookAt(c);
+r.render(scene, cam);
+document.title = JSON.stringify({ size: s.toArray().map((v) => +v.toFixed(4)), min: box.min.toArray().map((v) => +v.toFixed(4)) });
+</script>
