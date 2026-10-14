@@ -79,7 +79,9 @@ node tools/cdp.mjs shot out.png
 The models are not in the source tree. Put optimized copies in `assets/` and the build bundles them; without them, the shelf builds without the corner. Optimize with:
 
 ```bash
-npx gltf-transform optimize in.glb assets/crt_tv.glb --compress quantize --texture-compress webp --texture-size 1024 --simplify false
+npx gltf-transform optimize in.glb assets/crt_tv.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify false
+# heavier models (controller 0.2, ashtray 0.25, whiteboard 0.25, PS2 0.5):
+npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress webp --texture-size 1024 --simplify true --simplify-ratio 0.2 --simplify-error 0.002
 ```
 
 | File | Model | Author | Licence |
@@ -94,27 +96,45 @@ npx gltf-transform optimize in.glb assets/crt_tv.glb --compress quantize --textu
 
 Because the build embeds them, don't publish `dist/` from a build that includes them.
 
+For a public release, host the assets folder (models you're allowed to redistribute) somewhere CORS-enabled, for example the repository itself through jsDelivr, and build with:
+
+```bash
+CDS_ASSET_BASE=https://cdn.jsdelivr.net/gh/<you>/cd-shelf@<tag>/assets npm run build
+```
+
+The app then fetches the models and the font from there, and the app file drops from about 3.6 MB to about 1 MB.
+
 **How the TV gets the Canvas video:** Spotify Canvas loops are H.264 MP4 (Main profile, 1080×1920), and Spotify's bundled Chromium has no H.264 decoder, either in `<video>` or in WebCodecs. Spotify plays Canvas itself through a media stream in its Now Playing view's `<video>` (`[class*="canvasVideoContainer"] video`, a same-origin `blob:`). Twice a second the TV looks for that element. While it's showing a Canvas, the TV mirrors its frames as a `VideoTexture`; it only reads them, so Spotify keeps playing and pausing it. When there's no Canvas, the TV shows the cover art, music-channel style. `canvasFor` would download Canvas files directly if Spotify ever ships H.264.
 
 ## Performance
 
-Measured in Spotify on an RTX 3050 Ti laptop, with 102 discs:
+Measured in Spotify on an RTX 3050 Ti laptop with GPU timer queries (milliseconds of GPU work per frame):
 
-| | Before | After |
+| | Before the optimization pass | After |
 | --- | --- | --- |
-| Frames rendered while idle | every frame | 30 fps (15 when Spotify isn't focused) |
-| Draw calls per frame | 715 | 25 (38 at the TV) |
-| CPU per rendered frame | 7–8 ms | 2–3 ms |
+| 102 discs | 5.7 ms, 5.2 M triangles | **2.3 ms, 1.0 M triangles** |
+| 102 discs at ~4× the pixels | 14.4 ms | **6.7 ms** |
+| TV corner | 4.5 ms | **1.7 ms** |
+| 2,000-disc library | 89.8 ms (8 fps), 165 M triangles | **3.4 ms (144 fps), 3.0 M triangles, 94 MB heap** |
+| Idle, top of the shelf | 30 fps | **0 fps** (nothing is drawn until something changes) |
 
-What does it:
+How:
 
-- **Frame throttling:** full frame rate while anything moves or the pointer is active, 30 fps when the room only idles (dust, drift, the TV's flicker), and 15 fps while Spotify isn't the focused window.
-- **On-demand shadows:** the shadow map only re-renders when a shadow caster moves.
-- **Texture arrays:** covers and spines live in two arrays (one layer per case), so the booklet, spine, and both disc faces of every case are four instanced draws in all. The glass was already instanced.
-- **Settled cases are skipped:** no spring maths and no matrix writes. Rows outside the camera's view aren't drawn.
-- **TV corner:** its area light and picture are skipped while it's off-screen (shader variants are pre-compiled, so scrolling to it doesn't hitch). The mirrored Canvas is copied into a 384×288 canvas rather than uploading 1080×1920 frames. Its models load once the shelf is up and the page is idle.
+- **Recycled cases.** Only the rows in view (plus one either side) hold a slot: glass instances, booklet, spine, disc, contact shadow and texture layers. Rows scrolling in reuse freed slots, so memory and drawing stay flat for any library size. A newly slotted case shows a neutral placeholder layer until its spine is written (a few milliseconds of writes per frame, more while the view is still), and the finished pixels are cached for cases seen recently.
+- **Two builds of the case.** In the row only the hinge edge shows, so those cases use a shelf build of the cd-case geometry (rails, hinge, floor: 9k triangles). Hovered, pulled-out and arriving cases switch to the full build (40k) with the interior.
+- **Quality presets.** Auto picks High, Medium or Low from the GPU (one lower on battery); the header's Quality menu overrides it. Presets set the resolution cap (2×/1.5×/1×), anti-aliasing (4×/2×/off), shadow resolution, light bounces inside the glass (4/3/2), dust, picture-light pools and the TV's area light.
+- **Adaptive resolution.** The GPU time of each frame is measured (timer queries, or frame timing where those aren't available). Above budget the render scale steps down (to 50% at most), with plenty of headroom it steps back up.
+- **Cheap lighting.** The picture-light pools are a diffuse term injected into the shelf's materials instead of six point lights. Lights are dimmed rather than switched off, so materials never recompile mid-scroll. Shadows of moving cases refresh at most 15 times a second, and the shadow area is three screens tall so scrolling rarely moves it.
+- **Idle.** 30 fps for a few seconds after the last input or motion (15 fps unfocused), then nothing at all, unless the TV is on screen. With "reduce motion" turned on in the system settings, there's no camera drift and no dust.
+- **Lean assets.** Room models simplified (controller, ashtray, whiteboard, PS2: 50.7k → 16.5k triangles) and meshopt-compressed. Covers come from Spotify's own browser cache on later sessions.
 
-In DevTools, `__cdShelf.perf()` reports fps, CPU ms per frame and draw calls since the last call. With the shelf closed, Spotify itself uses about 28–30% of this GPU (its own UI and other extensions), so measure against that.
+For profiling, from DevTools: `__cdShelf.profile({ busy: true, timing: true })`, wait a few seconds, then `__cdShelf.profile()` returns GPU ms per pass, fps, CPU ms and triangles. `baseDpr` simulates a high-density screen. Spotify's own UI uses a share of the GPU too (about 28–30% on this laptop), so compare against the shelf closed.
+
+### On a slow machine
+
+- Pick **Quality: Low** in the header (no anti-aliasing, 1× resolution, simpler glass, no dust or extra lights).
+- On Linux with NVIDIA, see "NVIDIA on Linux" above: hardware video decode can crash Spotify's GPU process and disable WebGL.
+- Smaller Spotify windows render fewer pixels; the adaptive resolution does the rest.
 
 ## Credit
 
