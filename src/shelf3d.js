@@ -871,7 +871,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       rodMat.needsUpdate = true;
     }
     dust.visible = q.dust && !reducedMotion;
-    deco.lights.forEach((l, k) => (l.visible = k < q.pictureLights));
+    deco.lights.forEach((l, k) => (l.on = k < q.pictureLights));
     corner?.setTvLight(q.tvLight);
     if (changed) scale = 1;
     renderer.setPixelRatio(basePixelRatio() * scale);
@@ -962,12 +962,15 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
   function fitShadow() {
     const sc = key.shadow.camera;
     const halfW = Math.max(unit.halfW, corner?.halfW ?? 0) + 50;
-    const halfH = (view.visH * 0.75 + 110) * (1 + DOLLY * dollyF);
+    // Three screens tall, so scrolling only moves it (and re-renders shadows) now and then.
+    const halfH = (view.visH * 1.5 + 160) * (1 + DOLLY * dollyF);
     sc.left = -halfW;
     sc.right = halfW;
     sc.top = halfH;
     sc.bottom = -halfH;
     sc.updateProjectionMatrix();
+    // Keep shadows as soft in the room as before: the blur radius is in texels, which are larger now.
+    key.shadow.radius = LIGHT.shadowRadius * ((view.visH * 0.75 + 110) / (view.visH * 1.5 + 160));
     shadowDirty = true;
   }
 
@@ -994,12 +997,41 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     bars: [],
     lights: [],
   };
-  // Two pools per row, for the three rows nearest the camera.
-  for (let i = 0; i < 6; i++) {
-    const l = new THREE.PointLight(LIGHT.pictureColor, LIGHT.pictureIntensity, 330, 1.1);
-    scene.add(l);
-    deco.lights.push(l);
+  // Two pools per row, for the three rows nearest the camera. Not three.js lights: a small diffuse
+  // term injected into the shelf's materials (see poolify), a fraction of a point light's cost.
+  for (let i = 0; i < 6; i++) deco.lights.push({ position: new THREE.Vector3(), intensity: 0, on: true });
+  const pools = {
+    pos: { value: Array.from({ length: 6 }, () => new THREE.Vector3()) },
+    power: { value: new Float32Array(6) },
+    color: { value: new THREE.Color(LIGHT.pictureColor) },
+  };
+  function poolify(mat) {
+    const prev = mat.onBeforeCompile;
+    const prevKey = mat.customProgramCacheKey?.bind(mat);
+    mat.onBeforeCompile = (sh, r) => {
+      prev?.call(mat, sh, r);
+      sh.uniforms.uPoolPos = pools.pos;
+      sh.uniforms.uPoolPow = pools.power;
+      sh.uniforms.uPoolColor = pools.color;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('void main() {', 'uniform vec3 uPoolPos[6];\nuniform float uPoolPow[6];\nuniform vec3 uPoolColor;\nvoid main() {')
+        .replace(
+          '#include <lights_fragment_end>',
+          `for (int k = 0; k < 6; k++) {
+            if (uPoolPow[k] <= 0.0) continue;
+            vec3 L = uPoolPos[k] - geometryPosition;
+            float d = length(L);
+            L /= max(d, 1e-3);
+            float nl = max(dot(geometryNormal, L), 0.0);
+            reflectedLight.directDiffuse += uPoolColor * (uPoolPow[k] * nl * getDistanceAttenuation(d, 330.0, 1.1)) * BRDF_Lambert(material.diffuseColor);
+          }
+          #include <lights_fragment_end>`,
+        );
+    };
+    mat.customProgramCacheKey = () => (prevKey ? prevKey() : '') + '|pools';
+    mat.needsUpdate = true;
   }
+  for (const m of [boardMat, sideMat, backMat, wall.material, labelMat, coverMat, printMat, discUnder, deco.brass]) poolify(m);
   const unit = { halfW: 200, top: 0, bottom: 0 };
   const loadCover = limiter(6);
   let order = [];
@@ -1190,6 +1222,9 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     return a > b ? clamp((a - y) / (a - b), 0, 1) : 0;
   };
   let dollyF = 0;
+  let shadowCenter = null;
+  let shadowStale = false;
+  let shadowAt = 0;
   let camDY = 0;
 
   // Scroll limits: the first row sits just under the DOM header; the last board rests near the bottom.
@@ -1445,9 +1480,15 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     camera.updateMatrixWorld();
 
     // The key follows the scroll, snapped to whole shadow texels so its shadows don't shimmer.
+    // The key's shadow area re-centres only when the view nears its edge, snapped to whole texels so
+    // shadows don't shimmer when it does.
     const texel = (key.shadow.camera.top - key.shadow.camera.bottom) / key.shadow.mapSize.y;
-    const keyY = Math.round((cam.y - 30) / texel) * texel;
-    if (keyY !== key.target.position.y) shadowDirty = true;
+    const lookAt = cam.y + camDY - 30;
+    if (Math.abs(lookAt - shadowCenter) > view.visH * 0.7 || shadowCenter === null) {
+      shadowCenter = Math.round(lookAt / texel) * texel;
+      shadowDirty = true;
+    }
+    const keyY = shadowCenter;
     key.target.position.set(0, keyY, 0);
     key.position.copy(key.target.position).addScaledVector(LIGHT.keyDir, 1800);
     key.target.updateMatrixWorld();
@@ -1477,8 +1518,10 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       deco.lights.forEach((l, k) => {
         const r = first + (k >> 1);
         // Dimmed, never hidden: switching lights on and off would recompile every material.
-        l.intensity = r < rowCount ? LIGHT.pictureIntensity * fade : 0;
+        l.intensity = r < rowCount && l.on ? LIGHT.pictureIntensity * fade : 0;
         l.position.set((k & 1 ? 1 : -1) * deco.unitW * 0.24, deco.boardY(r - 1) - BOARD / 2 - 14, DEPTH / 2 + 22);
+        pools.pos.value[k].copy(l.position).applyMatrix4(camera.matrixWorldInverse);
+        pools.power.value[k] = l.intensity;
       });
     }
     const cornerBusy = corner?.update(dt, t, corner && corner.standTopY + 450 > lookY - seeHalf && corner.floorY < lookY + seeHalf);
@@ -1547,7 +1590,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
           }
         }
         moving = true;
-        shadowDirty = true;
+        shadowStale = true;
       }
       // Out of its place in the row (or about to be): the full-detail glass.
       const isNear =
@@ -1639,9 +1682,14 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     dustGeo.attributes.position.needsUpdate = true;
 
     // Opaque room, then the glass refracting a copy of it, then dust, then tone-map to the screen.
-    if (shadowDirty) {
+    // Shadows of moving cases refresh at most 15 times a second; anything else that needs new shadows
+    // (the shadow area moving, models arriving, quality changes) refreshes them right away.
+    const nowMs = performance.now();
+    if (shadowDirty || (shadowStale && nowMs - shadowAt > 66)) {
       renderer.shadowMap.needsUpdate = true;
-      shadowDirty = false;
+      shadowDirty = shadowStale = false;
+      shadowAt = nowMs;
+      dbg.shadows = (dbg.shadows || 0) + 1;
     }
     const T = dbg.timer;
     adaptBegin();
@@ -1833,6 +1881,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
     },
     profile({ busy, timing, pixelRatio, baseDpr } = {}) {
       if (busy !== undefined) dbg.busy = busy;
+      if (arguments[0]?.pictureLights !== undefined) deco.lights.forEach((l, k) => (l.on = k < arguments[0].pictureLights));
       // Pretend the screen has this pixel density (tests the adaptive scale).
       if (baseDpr !== undefined) {
         dbg.dpr = baseDpr || 0;
@@ -1847,7 +1896,7 @@ export function createShelf(container, { onPick, onHover, onTv, canvasFor, lyric
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {
