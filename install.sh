@@ -1,9 +1,9 @@
 #!/bin/sh
 # Spotify Reimagined (CD Shelf) installer for Linux and macOS.
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/WhiteRafalicu/spotify-reimagined/main/install.sh | sh
 # Needs Spicetify (https://spicetify.app). CDS_ZIP=<path or url> installs a specific build.
 set -e
-REPO="OWNER/spotify-reimagined"
+REPO="WhiteRafalicu/spotify-reimagined"
 ZIP="${CDS_ZIP:-https://github.com/$REPO/releases/latest/download/cd-shelf.zip}"
 
 if ! command -v spicetify >/dev/null 2>&1; then

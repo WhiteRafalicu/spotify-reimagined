@@ -1,8 +1,8 @@
 # Spotify Reimagined (CD Shelf) installer for Windows.
-#   iwr -useb https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.ps1 | iex
+#   iwr -useb https://raw.githubusercontent.com/WhiteRafalicu/spotify-reimagined/main/install.ps1 | iex
 # Needs Spicetify (https://spicetify.app). Set $env:CDS_ZIP to install a specific build.
 $ErrorActionPreference = 'Stop'
-$repo = 'OWNER/spotify-reimagined'
+$repo = 'WhiteRafalicu/spotify-reimagined'
 $zipUrl = if ($env:CDS_ZIP) { $env:CDS_ZIP } else { "https://github.com/$repo/releases/latest/download/cd-shelf.zip" }
 
 if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {

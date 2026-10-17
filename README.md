@@ -17,13 +17,13 @@ installed. Then run one line:
 **Linux / macOS**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/WhiteRafalicu/spotify-reimagined/main/install.sh | sh
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/WhiteRafalicu/spotify-reimagined/main/install.ps1 | iex
 ```
 
 Spotify restarts and opens on the shelf. To uninstall:
