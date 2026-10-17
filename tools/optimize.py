@@ -3,6 +3,7 @@
 # can't be seen from the front (console insides, back-panel plugs), decimates the rest, makes the
 # CRT tube its own "CRTScreen" mesh (the flat front glass goes) and turns the set to face -Z in glTF.
 import bpy, bmesh, sys, math
+import numpy as np
 from mathutils import Vector, Matrix
 src, dst = sys.argv[-2], sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -64,6 +65,41 @@ cap_node.rotation_mode = 'QUATERNION'
 cap_node.rotation_quaternion = (1, 0, 0, 0)
 bpy.context.view_layer.update()
 print('LID closed at its hinge pivot')
+
+# One controller is modelled standing on its edge in front of the monitor with nothing holding it.
+# The other one (the same model) lies flat, face up: give the standing one that orientation, turned a
+# little so they don't look copy-pasted, keep it where it is, and rest it on the floor (Blender: z up).
+pad = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('ps_controller.002'))
+flat = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('ps_controller.001'))
+floor = min((o.matrix_world @ Vector(c)).z for o in bpy.data.objects if o.type == 'MESH' for c in o.bound_box)
+def centre(o):
+    P = [o.matrix_world @ v.co for v in o.data.vertices]
+    return sum(P, Vector()) / len(P)
+here = centre(pad)
+loc, rot, scl = flat.matrix_world.decompose()
+pad.matrix_world = Matrix.LocRotScale(Vector(), Matrix.Rotation(math.radians(35), 4, 'Z').to_quaternion() @ rot, scl)
+now = centre(pad)
+pad.matrix_world = Matrix.Translation((here.x - now.x, here.y - now.y, 0)) @ pad.matrix_world
+zmin = min((pad.matrix_world @ v.co).z for v in pad.data.vertices)
+pad.matrix_world = Matrix.Translation((0, 0, floor - zmin + 0.0005)) @ pad.matrix_world
+zs = [(pad.matrix_world @ v.co).z for v in pad.data.vertices]
+print(f'PAD laid flat like the other one: now {(max(zs) - min(zs)) * 1000:.0f} mm tall')
+
+# Its cable was modelled to plug into the controller's top while it stood: the end now sticks up in
+# a hook. Trim the cable faces that rise above the controller's height around where it lies.
+cable = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('ps_cable'))
+PP = [pad.matrix_world @ v.co for v in pad.data.vertices]
+bx0, bx1 = min(p.x for p in PP) - 0.04, max(p.x for p in PP) + 0.04
+by0, by1 = min(p.y for p in PP) - 0.04, max(p.y for p in PP) + 0.04
+ztop = max(p.z for p in PP)
+bm = bmesh.new()
+bm.from_mesh(cable.data)
+mw = cable.matrix_world
+cut = [f for f in bm.faces if any((lambda w: bx0 < w.x < bx1 and by0 < w.y < by1 and w.z > ztop - 0.004)(mw @ v.co) for v in f.verts)]
+bmesh.ops.delete(bm, geom=cut, context='FACES')
+bm.to_mesh(cable.data)
+bm.free()
+print(f'CABLE trimmed {len(cut)} faces above the laid-down controller')
 
 # Decimation per part: small-on-screen pieces hardest.
 RATIO = [
