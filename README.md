@@ -54,7 +54,10 @@ spicetify apply
   the sidebar open for it), or the cover art, music-channel style, through a CRT effect. The
   whiteboard shows Spotify's synced lyrics.
 - **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
-- **Quality** in the header: Auto picks a level for your GPU, and the resolution adapts to keep it
+- **Settings** in the header: switch off any of it (the shelf as Home, the hidden sidebar, the
+  spinning CD, the TV corner, the dust), pick a quality level, or press **Back to classic Spotify**
+  to undo every change to Spotify's own interface in one click. The shelf stays one click away.
+- **Quality**, also in Settings: Auto picks a level for your GPU, and the resolution adapts to keep it
   smooth. See [Performance](#performance).
 
 ## Troubleshooting

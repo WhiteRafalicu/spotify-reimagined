@@ -4,6 +4,7 @@ import { createStage } from './stage';
 import { canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
 import assets from './assets.gen';
 import css from './style.css';
+import { DEFAULTS, getSettings, onSettings, setSettings } from './settings';
 
 const { useEffect, useMemo, useRef, useState, useCallback } = Spicetify.React;
 
@@ -138,6 +139,64 @@ const PARK_MS = 10 * 60 * 1000;
 let parked = null; // { shelf, timer }
 let keptItems = null;
 
+const TOGGLES = [
+  ['home', 'Open Spotify on the shelf', 'Replaces Home. Off: Home is Spotify’s own again.'],
+  ['hideSidebar', 'Hide the Your Library sidebar', 'The shelf is your library.'],
+  ['discCover', 'Spinning CD in the player bar', 'Click it to open the playing album’s case.'],
+  ['tvCorner', 'TV corner under the shelf', 'The TV, the console and the lyrics whiteboard.'],
+  ['dust', 'Dust in the light', ''],
+];
+
+function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
+  const set = (k, v) => setSettings({ [k]: v });
+  return (
+    <div className="cds-settings" role="dialog" aria-label="CD Shelf settings">
+      <div className="cds-settings-head">
+        <b>Settings</b>
+        <button className="cds-chip" onClick={onClose} aria-label="Close settings">
+          ✕
+        </button>
+      </div>
+      {TOGGLES.map(([k, label, hint]) => (
+        <label key={k} className="cds-toggle">
+          <input type="checkbox" checked={settings[k]} onChange={(e) => set(k, e.target.checked)} />
+          <span>
+            {label}
+            {hint && <small>{hint}</small>}
+          </span>
+        </label>
+      ))}
+      <label className="cds-toggle">
+        <span>
+          Quality
+          <small>Auto picks a level for your GPU{tier && quality === 'auto' ? ` (now ${tier})` : ''}.</small>
+        </span>
+        <select className="cds-chip" value={quality} onChange={(e) => setQuality(e.target.value)}>
+          <option value="auto">Auto</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </label>
+      <div className="cds-settings-foot">
+        <button
+          className="cds-chip"
+          onClick={() => {
+            setSettings({ home: false, hideSidebar: false, discCover: false });
+            Spicetify.Platform.History.push('/', { cdsHome: true });
+          }}
+        >
+          Back to classic Spotify
+        </button>
+        <button className="cds-chip" onClick={() => setSettings({ ...DEFAULTS })}>
+          Reset
+        </button>
+      </div>
+      <p className="cds-settings-note">The shelf stays one click away (its disc icon in the top bar). To remove it completely, see the README.</p>
+    </div>
+  );
+}
+
 function App() {
   const [items, setItemsState] = useState(() => keptItems);
   const setItems = useCallback((v) => {
@@ -164,6 +223,11 @@ function App() {
     }
   });
   const [tier, setTier] = useState(null);
+  const [settings, setSettingsState] = useState(getSettings);
+  const [showSettings, setShowSettings] = useState(false);
+  useEffect(() => onSettings(setSettingsState), []);
+  // The TV corner is built with the scene, so switching it rebuilds the scene (see the mount effect).
+  const cornerKey = settings.tvCorner ? 'corner' : 'nocorner';
   const arrivals = useRef(null);
   const now = usePlayer();
   const worldRef = useRef(null);
@@ -206,13 +270,26 @@ function App() {
     if (!worldRef.current) return;
     const handlers = { onPick: (item) => pull(item), onHover: setHover, onTv: () => Spicetify.Player.togglePlay() };
     let s;
+    if (parked && parked.cornerKey !== cornerKey) {
+      clearTimeout(parked.timer);
+      parked.shelf.dispose();
+      parked = null;
+    }
     if (parked) {
       clearTimeout(parked.timer);
       s = parked.shelf;
       parked = null;
       s.attach(worldRef.current, handlers);
     } else {
-      s = createShelf(worldRef.current, { ...handlers, canvasFor, lyricsFor, getProgress: createPlayerClock(), assets });
+      s = createShelf(worldRef.current, {
+        ...handlers,
+        canvasFor,
+        lyricsFor,
+        getProgress: createPlayerClock(),
+        assets,
+        corner: settings.tvCorner,
+        dust: settings.dust,
+      });
     }
     s?.setNowPlaying(nowTrack());
     s?.setQuality(quality);
@@ -224,15 +301,18 @@ function App() {
       shelf.current = null;
       if (!s) return;
       s.detach();
-      const mine = { shelf: s, timer: setTimeout(() => (s.dispose(), parked === mine && (parked = null)), PARK_MS) };
+      const mine = { shelf: s, cornerKey, timer: setTimeout(() => (s.dispose(), parked === mine && (parked = null)), PARK_MS) };
       parked = mine;
     };
-  }, [host]);
+  }, [host, cornerKey]);
+  useEffect(() => {
+    shelf.current?.setDust(settings.dust);
+  }, [settings.dust, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
     arrivals.current = null;
-  }, [shown, host]);
+  }, [shown, host, cornerKey]);
 
   // Saving (or removing) an album or playlist anywhere in Spotify updates the shelf: new discs
   // slide in from the front, removed ones leave.
@@ -272,13 +352,13 @@ function App() {
     if (!shelf.current) return;
     shelf.current.setQuality(quality);
     setTier(shelf.current.quality.tier);
-  }, [quality]);
+  }, [quality, cornerKey]);
   useEffect(() => {
     shelf.current?.setLive(now.context);
-  }, [now.context, shown, host]);
+  }, [now.context, shown, host, cornerKey]);
   useEffect(() => {
     shelf.current?.setNowPlaying(nowTrack());
-  }, [now.track, now.playing, host]);
+  }, [now.track, now.playing, host, cornerKey]);
 
   // The player bar's disc (see extension.js) opens a case by navigating here with { cdsOpen: uri }.
   const itemsRef = useRef(null);
@@ -335,17 +415,17 @@ function App() {
             <option value="artist">Artist</option>
             <option value="name">Title</option>
           </select>
-          <select className="cds-chip" value={quality} onChange={(e) => setQuality(e.target.value)} title="Rendering quality">
-            <option value="auto">{`Quality: Auto${tier && quality === 'auto' ? ` (${tier})` : ''}`}</option>
-            <option value="high">Quality: High</option>
-            <option value="medium">Quality: Medium</option>
-            <option value="low">Quality: Low</option>
-          </select>
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             Spotify home
           </button>
+          <button className={`cds-chip${showSettings ? ' is-on' : ''}`} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
+            Settings
+          </button>
         </div>
       </header>
+      {showSettings && (
+        <SettingsPanel settings={settings} quality={quality} setQuality={setQuality} tier={tier} onClose={() => setShowSettings(false)} />
+      )}
       <div className={`cds-caption${hover || notice ? ' is-on' : ''}`}>
         {(hover || notice) && (
           <>

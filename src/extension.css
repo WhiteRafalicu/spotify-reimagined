@@ -1,20 +1,20 @@
 /* The library sidebar is gone: the shelf is the library. Its grid column collapses to nothing. */
-.Root__nav-bar {
+body.cds-hide-sidebar .Root__nav-bar {
   display: none !important;
 }
-.Root__top-container {
+body.cds-hide-sidebar .Root__top-container {
   grid-template-columns: 0px minmax(0, 1fr) auto !important;
 }
 
 /* The player bar's cover, pressed onto a CD: round, a clear hub with a hole, a rainbow sheen. */
-.main-nowPlayingWidget-coverArt {
+body.cds-disc .main-nowPlayingWidget-coverArt {
   position: relative;
   border-radius: 50% !important;
   overflow: visible !important;
   background: none !important;
   box-shadow: none !important;
 }
-.main-nowPlayingWidget-coverArt .cover-art {
+body.cds-disc .main-nowPlayingWidget-coverArt .cover-art {
   border-radius: 50% !important;
   overflow: hidden;
   background: #c9ccd1 !important;
@@ -26,17 +26,17 @@
   animation: cds-spin 1.6s linear infinite;
   animation-play-state: paused;
 }
-.main-nowPlayingWidget-coverArt .cover-art img {
+body.cds-disc .main-nowPlayingWidget-coverArt .cover-art img {
   border-radius: 50% !important;
   /* The print stops short of the clear hub, like a real disc. */
   -webkit-mask: radial-gradient(circle, transparent 0 26%, #000 27%);
   mask: radial-gradient(circle, transparent 0 26%, #000 27%);
 }
-body.cds-playing .main-nowPlayingWidget-coverArt .cover-art {
+body.cds-disc.cds-playing .main-nowPlayingWidget-coverArt .cover-art {
   animation-play-state: running;
 }
 /* The light doesn't turn with the disc: the sheen and hub ring sit above it, still. */
-.main-nowPlayingWidget-coverArt::after {
+body.cds-disc .main-nowPlayingWidget-coverArt::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -60,7 +60,7 @@ body.cds-playing .main-nowPlayingWidget-coverArt .cover-art {
   mask: radial-gradient(circle, transparent 0 9%, #000 9.5%);
   mix-blend-mode: screen;
 }
-[data-testid='cover-art-button'] {
+body.cds-disc [data-testid='cover-art-button'] {
   border-radius: 50% !important;
 }
 @keyframes cds-spin {
@@ -69,7 +69,7 @@ body.cds-playing .main-nowPlayingWidget-coverArt .cover-art {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .main-nowPlayingWidget-coverArt .cover-art {
+  body.cds-disc .main-nowPlayingWidget-coverArt .cover-art {
     animation: none;
   }
 }

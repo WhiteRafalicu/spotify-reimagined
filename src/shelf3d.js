@@ -332,7 +332,8 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {} }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true }) {
+  let dustPref = dustOn;
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv };
@@ -874,7 +875,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       rodMat.defines.EXITS = q.exits;
       rodMat.needsUpdate = true;
     }
-    dust.visible = q.dust && !reducedMotion;
+    dust.visible = dustPref && q.dust && !reducedMotion;
     deco.lights.forEach((l, k) => (l.on = k < q.pictureLights));
     corner?.setTvLight(q.tvLight);
     if (changed) scale = 1;
@@ -936,7 +937,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
 
   // The TV corner under the shelf (only when the build bundled its models).
   const corner =
-    assets.tv || assets.ps2 || assets.pad || assets.table
+    withCorner && (assets.tv || assets.ps2 || assets.pad || assets.table)
       ? createCorner({
           scene,
           own,
@@ -1935,6 +1936,12 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     perf: () => perfReport(),
     // 'auto' | 'high' | 'medium' | 'low'
     setQuality: (mode) => applyQuality(mode),
+    setDust(on) {
+      dustPref = on;
+      dust.visible = dustPref && q.dust && !reducedMotion;
+      wake();
+    },
+    hasCorner: !!corner,
     get quality() {
       return { mode: qualityMode, tier: tierName, scale, gpu: gpuName(renderer) };
     },
