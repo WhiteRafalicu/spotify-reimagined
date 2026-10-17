@@ -266,3 +266,11 @@ select.cds-chip option {
   font-size: 32px;
   margin: 0 0 8px;
 }
+
+.cds-world-gl:focus {
+  outline: none;
+}
+.cds-world-gl:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: -4px;
+}

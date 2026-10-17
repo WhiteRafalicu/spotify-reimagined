@@ -1,0 +1,52 @@
+name: Bug report
+description: Something on the shelf doesn't work or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: spotify
+    attributes:
+      label: Spotify version
+      description: Spotify menu → Help → About Spotify (for example 1.2.96.518).
+    validations:
+      required: true
+  - type: input
+    id: spicetify
+    attributes:
+      label: Spicetify version
+      description: Run `spicetify -v`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Graphics card
+      description: For example "NVIDIA RTX 3050", "Intel Iris Xe", "Apple M2".
+  - type: input
+    id: quality
+    attributes:
+      label: Quality setting
+      description: Settings → Quality (Auto shows the level it picked).
+  - type: textarea
+    id: extensions
+    attributes:
+      label: Other Spicetify extensions and theme
+      description: Other plugins can clash; list what you have installed.
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or error message
+      description: Drag an image in. If the shelf showed "The shelf fell over", paste that message.

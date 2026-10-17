@@ -44,6 +44,8 @@ spicetify apply
 | Drag the case | Turn it |
 | Click outside the case or press **Esc** | Put it back |
 | Click the TV | Play or pause |
+| Arrow keys / Page Up / Page Down / Home / End | Move between discs (click the shelf first) |
+| **Enter** or **Space** | Open the selected disc |
 
 - **The shelf is your library and your home page.** Spotify opens on it; the library sidebar is
   hidden. "Spotify home" in the header gets you to the original Home.
@@ -63,6 +65,9 @@ spicetify apply
   smooth. See [Performance](#performance).
 
 ## Troubleshooting
+
+Found a bug? [Open an issue](https://github.com/WhiteRafalicu/spotify-reimagined/issues/new/choose); the form asks for what helps fix it.
+
 
 - **Nothing changed after installing:** run `spicetify apply` again. After Spotify updates itself,
   run `spicetify backup apply`.

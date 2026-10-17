@@ -279,6 +279,7 @@ function App() {
     setOnStage(null);
     shelf.current?.setPaused(false);
     shelf.current?.putBack();
+    worldRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -408,7 +409,14 @@ function App() {
 
   const world = (
     <div className="cds-world">
-      <div className="cds-world-gl" ref={worldRef} />
+      <div
+        className="cds-world-gl"
+        ref={worldRef}
+        tabIndex={0}
+        role="application"
+        aria-label="CD shelf. Arrow keys move between discs, Page Up and Page Down move faster, Enter opens the selected disc, Escape puts it back."
+        aria-describedby="cds-caption"
+      />
       <header className="cds-head">
         <div>
           <h1>CD Shelf</h1>
@@ -445,7 +453,7 @@ function App() {
       {showSettings && (
         <SettingsPanel settings={settings} quality={quality} setQuality={setQuality} tier={tier} onClose={() => setShowSettings(false)} />
       )}
-      <div className={`cds-caption${hover || notice ? ' is-on' : ''}`}>
+      <div id="cds-caption" aria-live="polite" className={`cds-caption${hover || notice ? ' is-on' : ''}`}>
         {(hover || notice) && (
           <>
             <b>{(hover || notice).name}</b>

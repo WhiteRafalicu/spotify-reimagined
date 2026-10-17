@@ -1836,6 +1836,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     pointer.y = 1 - ((e.clientY - r.top) / r.height) * 2;
     pointer.ndc.set(pointer.x, pointer.y);
     pointer.over = true;
+    kbIndex = -1;
     if (!pulled) setHovered(pick());
     if (!hovered && corner) {
       raycaster.setFromCamera(pointer.ndc, camera);
@@ -1868,7 +1869,31 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     const perPx = view.visH / view.h;
     cam.target = clamp(cam.target - e.deltaY * perPx * 0.9, bottomY(), topY());
   };
+  // Keyboard: arrows move a selection along the shelf (up/down by a row), Page Up/Down by three rows,
+  // Home/End to the ends, Enter or Space opens the selected case. The selection is the hover.
+  let kbIndex = -1;
+  const onKey = (e) => {
+    if (pulled || !order.length) return;
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -perRow, ArrowDown: perRow, PageUp: -perRow * 3, PageDown: perRow * 3 }[e.key];
+    if (step !== undefined || e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      const from = kbIndex >= 0 ? kbIndex : hovered && hovered.index >= 0 ? hovered.index : -1;
+      kbIndex = e.key === 'Home' ? 0 : e.key === 'End' ? order.length - 1 : from < 0 ? 0 : clamp(from + step, 0, order.length - 1);
+      const c = cases.get(order[kbIndex]);
+      setHovered(c);
+      // Keep the selected row in view.
+      const y = rowY(Math.floor(kbIndex / perRow));
+      if (Math.abs(y - (cam.target + 10)) > view.visH * 0.3) cam.target = clamp(y + 10, bottomY(), topY());
+      wake();
+    } else if ((e.key === 'Enter' || e.key === ' ') && hovered && !hovered.gone) {
+      e.preventDefault();
+      const c = hovered;
+      pullOut(c.item.uri);
+      handlers.onPick?.(c.item);
+    }
+  };
   function bind() {
+    container.addEventListener('keydown', onKey);
     container.addEventListener('pointermove', onMove);
     container.addEventListener('pointerleave', onLeave);
     container.addEventListener('click', onClick);
@@ -1876,6 +1901,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.addEventListener(ev, wake, { passive: true });
   }
   function unbind() {
+    container.removeEventListener('keydown', onKey);
     container.removeEventListener('pointermove', onMove);
     container.removeEventListener('pointerleave', onLeave);
     container.removeEventListener('click', onClick);
