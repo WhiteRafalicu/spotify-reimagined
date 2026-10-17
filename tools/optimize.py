@@ -101,6 +101,29 @@ bm.to_mesh(cable.data)
 bm.free()
 print(f'CABLE trimmed {len(cut)} faces above the laid-down controller')
 
+# Lived in: the artist's arrangement is squared up like a product shot. Knock each piece a little off
+# true, turning it about the point where its cable meets it so nothing comes unplugged.
+def turn(objs, pivot, deg):
+    M = Matrix.Translation(pivot) @ Matrix.Rotation(math.radians(deg), 4, 'Z') @ Matrix.Translation(-pivot)
+    for o in objs:
+        o.matrix_world = M @ o.matrix_world
+def parts(*names):
+    return [o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith(names)]
+CW = [mw @ v.co for v in cable.data.vertices]
+def cable_end(o):
+    # The pad's point nearest the cable, at floor level.
+    P = [o.matrix_world @ v.co for v in o.data.vertices]
+    a, b = min(((p, q) for p in P[::7] for q in CW[::5]), key=lambda pq: (pq[0] - pq[1]).length_squared)
+    return Vector((a.x, a.y, 0))
+port = centre(next(iter(parts('connector.001'))))
+turn(parts('Ps1_body', 'ps1_cap', 'connector.001'), Vector((port.x, port.y, 0)), 7)
+turn([flat], cable_end(flat), -16)
+turn([pad], cable_end(pad), 12)
+monitor = parts('main_body', 'front_panel', 'glass_and_fence')
+mc = sum((centre(o) for o in monitor), Vector()) / len(monitor)
+turn(monitor, Vector((mc.x, mc.y, 0)), -2.5)
+print('MESS console +7, pads -16/+12, monitor -2.5 degrees')
+
 # Decimation per part: small-on-screen pieces hardest.
 RATIO = [
     ('ps_controller', 0.12), ('connector', 0.3), ('Ps1_body_details', 0.35), ('Ps1_body', 0.35), ('ps1_cap', 0.6),

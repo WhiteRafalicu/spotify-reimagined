@@ -391,8 +391,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     const front = lay.back + lay.depth;
     nContacts = 0;
     if (tv) {
-      // Not quite square to the room: turned a touch, as if nudged when it was last plugged in.
-      const turn = furniture === 'table' ? (tvSet ? 0.04 : 0.1) : 0;
+      // Not quite square to the room: turned a touch, as if nudged when it was last plugged in (a
+      // whole set's pieces are already knocked off true in the model, so the set itself barely turns).
+      const turn = furniture === 'table' ? (tvSet ? -0.02 : 0.1) : 0;
       tv.position.set(tvX - (turn ? 6 : 0), T, tvZ + (turn ? 8 : 0));
       bias.position.set(tvX, T + tvSpec.h * 0.9, 60);
       tv.rotation.y = turn;
@@ -447,15 +448,19 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     // The ashtray, on the cloth in front of the monitor.
     if (tray && furniture === 'table') {
       const s = tray.userData.size;
-      if (tvSet) tray.position.set(tvX + tvSpec.screenX - 40, T, front - 150);
+      if (tvSet) tray.position.set(tvX + tvSpec.screenX - 27, T, front - 163);
       else tray.position.set(-150, T, front - 72);
-      tray.rotation.y = 0.55;
+      tray.rotation.y = 0.87;
       contact(tray.position.x, T + 0.35, tray.position.z, s.x + 24, s.z + 24, 0.6);
     }
     stack.visible = furniture === 'stand';
     // With a whole set, the board hangs just right of the monitor (its centre is boardX).
     boardX = tvSet ? tvX + tvSpec.screenX + tvSpec.screenW / 2 + 60 + 240 : BOARD_X;
-    if (board) board.group.position.set(boardX, T + 40, 3);
+    if (board) {
+      // Hung by hand on one nail: not quite level.
+      board.group.position.set(boardX, T + 40, 3);
+      board.group.rotation.z = -0.018;
+    }
     contacts.count = nContacts;
     contacts.instanceMatrix.needsUpdate = true;
     if (contacts.instanceColor) contacts.instanceColor.needsUpdate = true;
