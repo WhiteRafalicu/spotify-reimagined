@@ -1,62 +1,84 @@
-# CD Shelf
+# Spotify Reimagined
 
-A [Spicetify](https://spicetify.app) custom app that turns your Spotify library into a rack of CD
-jewel cases. Your saved albums and playlists stand spine-out on wooden shelves in a three.js room.
-The cases cast shadows, a key light has dust drifting through it, and a warm lamp follows your
-pointer. Everything moves on springs: hover a case and it slides out and turns to show its cover
-while its neighbours lean away, filtering drops cases off the shelf and glides the rest into place,
-and whatever is playing pulses a green LED. Scroll to move along the shelves. Click it and the case rises off the shelf as a real-time, refracting
-3D jewel case and swings open: the cover is the booklet, the inside of the booklet is the tracklist,
-and the disc is printed with the art.
+Your Spotify library as a shelf of CDs. A [Spicetify](https://spicetify.app) custom app for the
+Spotify desktop app, built with three.js.
 
-| Do this | And this happens |
-| --- | --- |
-| Click a spine | Pull the case out and open it |
-| Click a track on the booklet | Play the album/playlist from that track |
-| Click the disc | Play or pause it (it spins while it plays) |
-| Drag the case | Turn it |
-| Click the case | Close or reopen it |
-| Click outside the case, **Esc** or "Back to the shelf" | Put it back |
-
-Playlists without a cover become blank CD-Rs with the name written on in marker.
-
-The companion extension (`src/extension.js`, loaded on every page) makes the shelf part of Spotify itself:
-
-- **Saving updates the shelf.** Save an album or playlist anywhere in Spotify and its disc appears in front of the shelf showing its cover, squares up and slides into its slot while the row makes room. The lamp picks it out and a caption names it. Removing one takes its disc off the shelf.
-- **A TV corner under the shelf.** Scroll past the last board and the camera comes down to a table on a plank floor (`assets/table.glb`; without it, a walnut media stand is built instead). On it, a CRT TV plays the current track like a music channel: the cover drifting across the tube, slot-mask phosphors, scanlines, a rolling bar, static when the track changes, and a green on-screen display with the channel number, track and artist (and ❚❚ PAUSE). Its light spills onto the room. The PS2 stands beside the TV with its controller resting on top (with the stand, the PS2 sits in a cubby and your five newest discs lie stacked in the other). At the bottom of the scroll the camera holds a close-up on the table top, backing off only as far as it must to fit the TV and the PS2 across a narrow window. Click the TV to play or pause. On the wall behind the PS2 hangs a whiteboard with the song's lyrics in marker, in time with the music: each line is written out as it's sung, the previous line fades to an erased smudge, and the next waits underneath in red. The lyrics come from Spotify's own synced-lyrics service (the one its Lyrics view uses).
-- **Art deco lighting.** A warm gold key light over a deep emerald-teal fill, brass picture-light bars under every board pooling light onto the spines, a gold-and-teal split-tone grade and a warm bias light behind the TV washing the wall. The palette lives in the `LIGHT` block in `src/shelf3d.js`.
-- **The library sidebar is gone.** The shelf is the library, and the main view takes its space.
-- **The shelf is Home.** Spotify opens on it, and the Home button leads to it. "Spotify home" on the shelf still gets you to the original Home.
-- **The player bar cover is a CD.** It spins while music plays. Clicking it opens the case of whatever's playing (shift-click keeps Spotify's own behaviour).
+Your saved albums and playlists stand spine-out on walnut shelves, as real refracting jewel cases
+under art deco lighting. Hover one and it slides out to show its cover; click it and it rises off the
+shelf and swings open: the cover is the booklet, the tracklist is printed inside it, and the disc
+spins while it plays. Scroll past the last shelf to a table where an old TV plays the song's Canvas
+video and a whiteboard writes out the lyrics in marker, in time with the music.
 
 ## Install
 
+You need the Spotify desktop app with [Spicetify](https://spicetify.app/docs/getting-started)
+installed. Then run one line:
+
+**Linux / macOS**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.sh | sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/OWNER/spotify-reimagined/main/install.ps1 | iex
+```
+
+Spotify restarts and opens on the shelf. To uninstall:
+
+```bash
+spicetify config custom_apps cd-shelf-
+spicetify apply
+```
+
+## What it does
+
+| Do this | And this happens |
+| --- | --- |
+| Hover a spine | The case slides out and turns to show its cover |
+| Click a spine | Pull the case out and open it |
+| Click a track on the booklet | Play the album or playlist from that track (long lists scroll) |
+| Click the disc | Play or pause (it spins while it plays) |
+| Drag the case | Turn it |
+| Click outside the case or press **Esc** | Put it back |
+| Click the TV | Play or pause |
+
+- **The shelf is your library and your home page.** Spotify opens on it; the library sidebar is
+  hidden. "Spotify home" in the header gets you to the original Home.
+- **It stays in sync.** Save an album anywhere in Spotify and its disc slides onto the shelf; remove
+  one and it leaves. Whatever is playing has a green LED on its spine.
+- **The player bar's cover is a spinning CD.** Click it to open that album's case.
+- **The TV corner.** The TV mirrors the Canvas video Spotify shows in its Now Playing sidebar (keep
+  the sidebar open for it), or the cover art, music-channel style, through a CRT effect. The
+  whiteboard shows Spotify's synced lyrics.
+- **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
+- **Quality** in the header: Auto picks a level for your GPU, and the resolution adapts to keep it
+  smooth. See [Performance](#performance).
+
+## Troubleshooting
+
+- **Nothing changed after installing:** run `spicetify apply` again. After Spotify updates itself,
+  run `spicetify backup apply`.
+- **"WebGL is unavailable":** on Linux with an NVIDIA GPU, hardware video decode can crash Spotify's
+  GPU process and disable WebGL. Start Spotify with `--disable-accelerated-video-decode` (on Arch,
+  put it in `~/.config/spotify-flags.conf`).
+- **Slow:** pick Quality: Low in the header.
+- **No TV on the table:** the public build has no TV model yet (see [Models](#the-tv-corners-models)).
+
+## Build from source
+
 ```bash
 npm install
-npm run build
-mkdir -p ~/.config/spicetify/CustomApps/cd-shelf
-cp dist/index.js dist/extension.js dist/manifest.json ~/.config/spicetify/CustomApps/cd-shelf/
+npm run build                     # embeds whatever models are in assets/ (see below)
+mkdir -p "$(dirname "$(spicetify -c)")/CustomApps/cd-shelf"
+cp dist/index.js dist/extension.js dist/manifest.json "$(dirname "$(spicetify -c)")/CustomApps/cd-shelf/"
 spicetify config custom_apps cd-shelf
 spicetify apply
 ```
 
-It appears as **CD Shelf** (a disc icon) in Spotify's left bar.
-
-### NVIDIA on Linux
-
-On this machine Spotify's GPU process crashed a few seconds after every page load because of
-hardware video decode (NVDEC via `LIBVA_DRIVER_NAME=nvidia`). After that, Chromium blocks WebGL for
-the whole Spotify UI. `~/.config/spotify-flags.conf` (read by Arch's `/usr/bin/spotify` launcher)
-fixes it:
-
-```
---disable-accelerated-video-decode
---disable-domain-blocking-for-3d-apis
-```
-
-As a last resort the stage also falls back to an OffscreenCanvas when `<canvas>` WebGL is blocked.
-
-## Develop
+Developing (Linux): start Spotify with the DevTools Protocol open, then rebuild and hot-reload it.
 
 ```bash
 /opt/spotify/spotify --remote-debugging-port=9222 &   # Spotify with DevTools Protocol open
@@ -66,7 +88,7 @@ node tools/cdp.mjs shot out.png
 ```
 
 - `src/app.jsx` is the header, the stage overlay and the player wiring.
-- `src/shelf3d.js` is the three.js shelf room (springs, lights, dust, raycast hover). Every case on the shelf is the real cd-case tray and lid (built at `withDetail(3)`, about 22k triangles), instanced and drawn with the original rod and sheet glass shaders over each case's booklet, spine strip and printed disc. It renders in passes: opaque room, then glass refracting a copy of it, then dust, then tone mapping with a light vignette.
+- `src/shelf3d.js` is the three.js shelf room (springs, lights, dust, raycast hover). Every case on the shelf is the real cd-case tray and lid (a shelf build of 9k triangles; hovered and pulled cases use the full 40k build), instanced and drawn with the original rod and sheet glass shaders over each case's booklet, spine strip and printed disc. It renders in passes: opaque room, then glass refracting a copy of it, then dust, then tone mapping with a light vignette.
 - Lighting lives in one `LIGHT` block in `src/shelf3d.js`: a warm-neutral directional key (the only shadow caster; 2048 map, PCF radius 9, its camera fitted to the unit and snapped to texels as you scroll), a weak cool fill, and hemisphere plus room-environment ambient. Contact shadows under every case and the creases where boards meet the sides and back are instanced multiply decals (two draws in all). The back panel carries baked compartment occlusion as an `aoMap`. The walnut is procedural: colour and roughness maps, rounded boards, clearcoat.
 - A hovered case slides clear of the row (`CLEAR_Z`) before it turns, and turns square before it slides back, so its 146 mm depth never swings through its neighbours. In DevTools, `__cdShelf.debug()` shows its layout.
 - `src/library.js` reads the library (`LibraryAPI`, GraphQL `queryAlbumTracks`, `PlaylistAPI`) and plays (`Player.playUri` with `skipTo`).
@@ -76,7 +98,7 @@ node tools/cdp.mjs shot out.png
 
 ### The TV corner's models
 
-The models are not in the source tree. Put optimized copies in `assets/` and the build bundles them; without them, the shelf builds without the corner. Optimize with:
+`release-assets/` holds the models that may be shared (with their licences in `release-assets/LICENSES.md`); release builds load them from there through jsDelivr. For your own build, put optimized copies in `assets/` (not committed) and the build embeds them; without them, the shelf builds without the corner. Optimize with:
 
 ```bash
 npx gltf-transform optimize in.glb assets/crt_tv.glb --compress meshopt --texture-compress webp --texture-size 512 --simplify false
@@ -139,6 +161,16 @@ For profiling, from DevTools: `__cdShelf.profile({ busy: true, timing: true })`,
 
 ## Credit
 
-The jewel case (the geometry, the refraction and diffraction shaders, the open and close motion) is
-[cd-case](https://github.com/annnguyentt/vibe-coding/tree/main/cd-case) by **Ann Nguyen**
-([@ann_nnng](https://x.com/ann_nnng)). Its original README is in `ORIGINAL_README.md`.
+- The jewel case (its geometry, the refraction and diffraction shaders, and the open and close
+  motion) is [cd-case](https://github.com/annnguyentt/vibe-coding/tree/main/cd-case) by
+  **Ann Nguyen** ([@ann_nnng](https://x.com/ann_nnng)), built with
+  [TypingMind](https://typingmind.com). Its original README is in `ORIGINAL_README.md`.
+- The room's models and the marker font are by their authors, listed with their licences in
+  [`release-assets/LICENSES.md`](release-assets/LICENSES.md).
+
+## Licence
+
+The code in this repository is [MIT](LICENSE). Ann Nguyen's case asks for credit when it's used or
+remixed (above). The models and the font in `release-assets/` keep their own licences.
+
+Not affiliated with Spotify. This changes how your own Spotify desktop app looks, through Spicetify.

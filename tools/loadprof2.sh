@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fresh load (page reload): model timings and stalls. Then a return visit: time to the first drawn
 # frame after coming back, and stalls.
-cd ~/Work/cd-shelf
+cd "$(dirname "$0")/.."
 E() { timeout 90 node tools/cdp.mjs eval "$1"; }
 E 'location.reload(); return 1' >/dev/null; sleep 9
 echo "fresh:  $(E 'window.__lt = []; try { new PerformanceObserver((l) => { for (const e of l.getEntries()) __lt.push(Math.round(e.duration)); }).observe({ type: "longtask" }); } catch {} Spicetify.Platform.History.push("/cd-shelf"); const t0 = performance.now(); let s; while (performance.now() - t0 < 12000) { await new Promise(r => setTimeout(r, 100)); s = window.__cdShelf?.debug?.().screen?.timing; if (s && s.tv && s.ps2 && s.pad && s.table && s.tray) break; } return JSON.stringify({ models: s, longTasksMs: __lt.sort((a, b) => b - a).slice(0, 5) })')"

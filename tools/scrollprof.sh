@@ -1,6 +1,6 @@
 #!/bin/bash
 # GPU ms per frame while scrolling continuously (shadows re-rendering), vs at rest.
-cd ~/Work/cd-shelf
+cd "$(dirname "$0")/.."
 E() { timeout 90 node tools/cdp.mjs eval "$1"; }
 POS=$(E 'const r=document.querySelector(".cds-world-gl").getBoundingClientRect(); return Math.round(r.left+r.width*0.5)+" "+Math.round(r.top+r.height*0.4)')
 timeout 20 node tools/wheel.mjs $POS -9000 8; sleep 2

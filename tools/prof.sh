@@ -1,7 +1,7 @@
 #!/bin/bash
 # tools/prof.sh <label>: GPU ms per pass, CPU ms, triangles at the shelf top, the TV corner, 2x
 # resolution, and a fake 2000-disc library. Needs Spotify with DevTools on :9222.
-cd ~/Work/cd-shelf
+cd "$(dirname "$0")/.."
 E() { timeout 40 node tools/cdp.mjs eval "$1"; }
 E 'if (!location.pathname.includes("cd-shelf")) Spicetify.Platform.History.push("/cd-shelf"); await new Promise(r => setTimeout(r, 9000)); return 1' >/dev/null
 POS=$(E 'const r=document.querySelector(".cds-world-gl").getBoundingClientRect(); return Math.round(r.left+r.width*0.5)+" "+Math.round(r.top+r.height*0.4)')
