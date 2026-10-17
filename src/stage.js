@@ -2,6 +2,7 @@
 // unhooked from React and fitted for one album: a cover booklet in the lid, the cover
 // printed on the disc, a tracklist on the booklet's inside, and clicks that play.
 import * as THREE from 'three';
+import { createRenderer } from './gl';
 import { CASE, HALF, HINGE, discGeometry, lidGeometry, trayGeometry } from './caseGeometry';
 import {
   BACKDROP_FRAG,
@@ -218,27 +219,13 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   canvas.setAttribute('aria-label', `${album.name} by ${album.artist}, in a clear CD jewel case.`);
   container.appendChild(canvas);
 
-  // Chromium blocks <canvas> WebGL for the whole page after the GPU process crashes while the page
-  // holds contexts (other Spotify extensions can trigger that). OffscreenCanvas isn't covered by the
-  // block, so fall back to drawing offscreen and handing each frame to the visible canvas.
-  const glOptions = { antialias: false, alpha: false, powerPreference: 'high-performance' };
-  let renderer;
-  let present = null;
-  try {
-    renderer = new THREE.WebGLRenderer({ canvas, ...glOptions });
-  } catch {
-    try {
-      const off = new OffscreenCanvas(1, 1);
-      renderer = new THREE.WebGLRenderer({ canvas: off, ...glOptions });
-      const blit = canvas.getContext('bitmaprenderer');
-      present = () => blit.transferFromImageBitmap(off.transferToImageBitmap());
-      console.info('[cd-shelf] <canvas> WebGL is blocked on this page; drawing through OffscreenCanvas');
-    } catch {
-      canvas.remove();
-      onFail?.();
-      return null;
-    }
+  const gl = createRenderer(canvas, { antialias: false, alpha: false, powerPreference: 'high-performance' });
+  if (!gl) {
+    canvas.remove();
+    onFail?.();
+    return null;
   }
+  const { renderer, present } = gl;
   const glCanvas = renderer.domElement;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.autoClear = false;

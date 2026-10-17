@@ -47,6 +47,10 @@ function Stage({ item, now, onClose, onShown }) {
   nowRef.current = now;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  // The case animates itself away only once it's up and running; until then (or if it never gets
+  // there) closing just closes.
+  const live3d = useRef(false);
+  const close = () => (live3d.current && stage.current ? stage.current.leave() : onClose());
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
 
@@ -73,12 +77,23 @@ function Stage({ item, now, onClose, onShown }) {
       onDisc: () => playOrPause(album),
       onDismiss: onClose,
       onReady: () => {
+        live3d.current = true;
+        clearTimeout(giveUp);
         setReady(true);
         setTimeout(() => onShown?.(), 400);
         setTimeout(() => s?.setOpen(true), 250);
       },
-      onFail: () => setFailed(true),
+      onFail: () => {
+        live3d.current = false;
+        setFailed(true);
+      },
     });
+    // Never leave an invisible stage over the page: if the case can't be shown, go back to the shelf.
+    const giveUp = setTimeout(() => {
+      if (live3d.current) return;
+      console.warn('[cd-shelf] the case never became ready; back to the shelf');
+      onClose();
+    }, 12000);
     stage.current = s;
     retry(() => loadTracks(item))
       .then((tracks) => {
@@ -92,7 +107,7 @@ function Stage({ item, now, onClose, onShown }) {
         s?.refresh();
       });
     const onKey = (e) => {
-      if (e.key === 'Escape') s ? s.leave() : onClose();
+      if (e.key === 'Escape') close();
       if (e.key === ' ' && e.target === document.body) {
         e.preventDefault();
         playOrPause(album);
@@ -100,6 +115,7 @@ function Stage({ item, now, onClose, onShown }) {
     };
     window.addEventListener('keydown', onKey);
     return () => {
+      clearTimeout(giveUp);
       window.removeEventListener('keydown', onKey);
       s?.dispose();
       stage.current = null;
@@ -113,7 +129,7 @@ function Stage({ item, now, onClose, onShown }) {
     <div className={`cds-stage${ready ? ' is-ready' : ''}`} style={rect || undefined}>
       <div className="cds-stage-gl" ref={box} />
       <div className="cds-hud">
-        <button className="cds-chip" onClick={() => (stage.current ? stage.current.leave() : onClose())}>
+        <button className="cds-chip" onClick={close}>
           {t('back')}
         </button>
         <button className="cds-chip" onClick={() => openPage(item)}>
@@ -266,7 +282,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => onSettings(setSettingsState), []);
   // The TV corner is built with the scene, so switching it rebuilds the scene (see the mount effect).
-  const cornerKey = `${settings.tvCorner ? 'corner' : 'nocorner'}|${settings.theme}`;
+  // A lost GPU context (a GPU reset) also rebuilds it: glGen counts those.
+  const [glGen, setGlGen] = useState(0);
+  const cornerKey = `${settings.tvCorner ? 'corner' : 'nocorner'}|${settings.theme}|${glGen}`;
   const arrivals = useRef(null);
   const now = usePlayer();
   const worldRef = useRef(null);
@@ -304,9 +322,18 @@ function App() {
 
   useEffect(() => {
     if (!worldRef.current) return;
-    const handlers = { onPick: (item) => pull(item), onHover: setHover, onTv: () => Spicetify.Player.togglePlay() };
+    const handlers = {
+      onPick: (item) => pull(item),
+      onHover: setHover,
+      onTv: () => Spicetify.Player.togglePlay(),
+      onLost: () => {
+        console.warn('[cd-shelf] WebGL context lost: rebuilding the shelf');
+        setOnStage(null);
+        setGlGen((g) => g + 1);
+      },
+    };
     let s;
-    if (parked && parked.cornerKey !== cornerKey) {
+    if (parked && (parked.cornerKey !== cornerKey || parked.shelf.lost)) {
       clearTimeout(parked.timer);
       parked.shelf.dispose();
       parked = null;

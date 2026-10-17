@@ -151,6 +151,10 @@ select.cds-chip option {
 .cds-stage.is-ready {
   opacity: 1;
 }
+/* Until the case is showing, the (transparent) stage lets clicks through to the page. */
+.cds-stage:not(.is-ready) {
+  pointer-events: none;
+}
 .cds-stage-gl {
   position: absolute;
   inset: 0;

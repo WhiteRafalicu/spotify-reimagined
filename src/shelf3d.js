@@ -2,6 +2,7 @@
 // key light with dust in it and a lamp that follows the pointer. Cases move on springs, so hovering,
 // filtering and re-sorting all settle with a little life instead of snapping.
 import * as THREE from 'three';
+import { createRenderer } from './gl';
 import { t as tr } from './i18n';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -394,24 +395,31 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
-  const handlers = { onPick, onHover, onTv };
+  const handlers = { onPick, onHover, onTv, onLost };
   let detached = false;
   const canvas = document.createElement('canvas');
   canvas.className = 'cds-shelf-canvas';
   container.appendChild(canvas);
 
-  let renderer;
-  try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  } catch {
+  const gl = createRenderer(canvas, { antialias: true, powerPreference: 'high-performance' });
+  if (!gl) {
     canvas.remove();
     return null;
   }
+  const { renderer, present } = gl;
+  // A context lost to a GPU reset comes back without most of what was uploaded (the case textures,
+  // render targets, compiled shaders): rather than limp on with black cases, the page rebuilds us.
+  let lost = false;
+  const lostContext = () => {
+    lost = true;
+    if (!disposed) handlers.onLost?.();
+  };
+  renderer.domElement.addEventListener('webglcontextlost', lostContext);
   renderer.autoClear = false;
   renderer.info.autoReset = false; // counted per frame across all passes (see perf)
   renderer.setClearColor(THEME.bg, 1);
@@ -1043,6 +1051,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   let warmChain = Promise.resolve();
   const idle = () => new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(r, { timeout: 200 }) : setTimeout(r, 16)));
   const warmed = new WeakSet();
+  const compiling = new Set(); // compileAsync polls the renderer until done: dispose waits for it
   async function prepareGpu(obj, light) {
     const textures = [];
     obj.traverse((o) => {
@@ -1069,7 +1078,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       light.visible = lv;
     }
     obj.visible = was;
-    await Promise.all(jobs);
+    const all = Promise.all(jobs);
+    compiling.add(all);
+    await all;
+    compiling.delete(all);
   }
 
   // The key's shadow camera hugs the shelf unit and the rows in view.
@@ -1838,6 +1850,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     renderer.setRenderTarget(null);
     T?.begin('output');
     renderer.render(output.scene, screenCam);
+    present?.();
     T?.end();
     T?.poll();
   }
@@ -2125,17 +2138,26 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       last = 0;
       layout();
     },
+    // True once the GPU context was lost: the shelf can't be reused (see onLost).
+    get lost() {
+      return lost;
+    },
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
       if (!detached) unbind();
-      corner?.dispose();
-      for (const m of Object.values(inst || {})) m.dispose();
-      for (const d of disposables) d.dispose?.();
-      renderer.dispose();
-      renderer.forceContextLoss();
       canvas.remove();
+      renderer.domElement.removeEventListener('webglcontextlost', lostContext);
+      // Free the GPU side once any shader compile in flight has finished (it polls the renderer).
+      const free = () => {
+        corner?.dispose();
+        for (const m of Object.values(inst || {})) m.dispose();
+        for (const d of disposables) d.dispose?.();
+        renderer.dispose();
+        renderer.forceContextLoss();
+      };
+      Promise.race([Promise.allSettled([...compiling]), new Promise((r) => setTimeout(r, 3000))]).then(free);
     },
   };
 }
