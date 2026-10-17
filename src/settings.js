@@ -6,6 +6,7 @@ export const DEFAULTS = {
   discCover: true, // the player bar's cover is a spinning CD
   tvCorner: true, // the TV corner under the shelf
   dust: true, // dust drifting in the light
+  theme: 'walnut', // walnut | birch | minimal
 };
 const KEY = 'cd-shelf:settings';
 const EVENT = 'cd-shelf:settings';

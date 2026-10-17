@@ -274,3 +274,36 @@ select.cds-chip option {
   outline: 2px solid rgba(255, 255, 255, 0.6);
   outline-offset: -4px;
 }
+
+/* Looks: the room colour behind the canvas and the header's fade follow the theme. */
+.cds-world.is-birch {
+  background: #c9c2b7;
+  color: #1a1714;
+}
+.cds-world.is-minimal {
+  background: #1d1d1f;
+}
+.cds-world.is-birch .cds-head {
+  background: linear-gradient(rgba(201, 194, 183, 0.92) 30%, rgba(201, 194, 183, 0));
+}
+.cds-world.is-minimal .cds-head {
+  background: linear-gradient(rgba(29, 29, 31, 0.9) 30%, rgba(29, 29, 31, 0));
+}
+.cds-world.is-birch .cds-head p {
+  color: rgba(26, 23, 20, 0.65);
+}
+.cds-world.is-birch .cds-head .cds-chip,
+.cds-world.is-birch .cds-search {
+  color: #1a1714;
+  background: rgba(0, 0, 0, 0.08);
+}
+.cds-world.is-birch .cds-head .cds-chip:hover {
+  background: rgba(0, 0, 0, 0.14);
+}
+.cds-world.is-birch .cds-head .cds-chip.is-on {
+  color: #fff;
+  background: #1a1714;
+}
+.cds-world.is-birch .cds-empty {
+  color: rgba(26, 23, 20, 0.7);
+}

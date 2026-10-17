@@ -161,8 +161,67 @@ function rng(seed) {
   };
 }
 
-// Dark walnut: a colour map (sRGB) and a matching roughness map (linear data). Grain runs along u.
-function walnutTextures(seed) {
+// Looks. Each sets the wood, the wall, the room's colour and the light; Walnut is the art deco
+// original. `grade` is the gold-and-teal split tone, `brass` the picture-light bars under the boards.
+export const THEMES = {
+  walnut: {
+    wood: { base: ['#4a3122', '#3f2a1d', '#472f20'], dark: '18,10,6', light: '120,86,58', figure: '16,9,5', pore: '10,6,3', grain: 1 },
+    wall: '#1b1816',
+    bg: 0x0e0d0c,
+    back: 0x8c8580,
+    exposure: 1.2,
+    grade: 1,
+    vignette: 0.34,
+    brass: true,
+    light: {},
+  },
+  birch: {
+    wood: { base: ['#dcc29b', '#d3b88f', '#d9be96'], dark: '125,92,56', light: '246,230,206', figure: '140,104,66', pore: '120,88,52', grain: 0.8 },
+    wall: '#d6d0c6',
+    bg: 0xc9c2b7,
+    back: 0xdcd6ce,
+    exposure: 1.0,
+    grade: 0,
+    vignette: 0.16,
+    brass: false,
+    light: {
+      keyColor: 0xfff4e6,
+      keyIntensity: 2.4,
+      fillColor: 0xdfe8f2,
+      fillIntensity: 0.55,
+      skyColor: 0xffffff,
+      groundColor: 0xb8a990,
+      hemiIntensity: 1.15,
+      envIntensity: 0.55,
+      pictureIntensity: 0,
+      shadowIntensity: 0.6,
+    },
+  },
+  minimal: {
+    wood: { base: ['#1e1e20', '#1b1b1d', '#1e1e20'], dark: '0,0,0', light: '70,70,74', figure: '0,0,0', pore: '0,0,0', grain: 0.25 },
+    wall: '#2b2b2e',
+    bg: 0x1d1d1f,
+    back: 0x75757a,
+    exposure: 1.1,
+    grade: 0,
+    vignette: 0.26,
+    brass: false,
+    light: {
+      keyColor: 0xffffff,
+      keyIntensity: 2.4,
+      fillColor: 0xcfd8e6,
+      fillIntensity: 0.45,
+      skyColor: 0xe8ecf2,
+      groundColor: 0x202022,
+      hemiIntensity: 0.6,
+      envIntensity: 0.35,
+      pictureIntensity: 0,
+    },
+  },
+};
+
+// Wood: a colour map (sRGB) and a matching roughness map (linear data). Grain runs along u.
+function walnutTextures(seed, wood = THEMES.walnut.wood) {
   const W = 2048;
   const H = 256;
   const rand = rng(seed);
@@ -176,9 +235,9 @@ function walnutTextures(seed) {
   const r = rough.getContext('2d');
 
   const base = g.createLinearGradient(0, 0, 0, H);
-  base.addColorStop(0, '#4a3122');
-  base.addColorStop(0.5, '#3f2a1d');
-  base.addColorStop(1, '#472f20');
+  base.addColorStop(0, wood.base[0]);
+  base.addColorStop(0.5, wood.base[1]);
+  base.addColorStop(1, wood.base[2]);
   g.fillStyle = base;
   g.fillRect(0, 0, W, H);
   r.fillStyle = 'rgb(150,150,150)';
@@ -188,13 +247,13 @@ function walnutTextures(seed) {
   for (let i = 0; i < 230; i++) {
     const y0 = rand() * H;
     const dark = rand() < 0.62;
-    const a = 0.05 + rand() * (dark ? 0.22 : 0.1);
+    const a = (0.05 + rand() * (dark ? 0.22 : 0.1)) * wood.grain;
     const lw = 0.4 + rand() * (dark ? 2.2 : 1.2);
     const f1 = 0.0012 + rand() * 0.003;
     const f2 = 0.006 + rand() * 0.01;
     const amp = 2 + rand() * 7;
     const ph = rand() * 10;
-    g.strokeStyle = dark ? `rgba(18,10,6,${a})` : `rgba(120,86,58,${a})`;
+    g.strokeStyle = dark ? `rgba(${wood.dark},${a})` : `rgba(${wood.light},${a})`;
     g.lineWidth = lw;
     r.strokeStyle = dark ? `rgba(200,200,200,${a * 1.4})` : `rgba(110,110,110,${a})`;
     r.lineWidth = lw;
@@ -213,7 +272,7 @@ function walnutTextures(seed) {
     const cx = (0.15 + rand() * 0.7) * W;
     const cy = H * (0.3 + rand() * 0.4);
     for (let j = 0; j < 9; j++) {
-      g.strokeStyle = `rgba(16,9,5,${0.06 + rand() * 0.06})`;
+      g.strokeStyle = `rgba(${wood.figure},${(0.06 + rand() * 0.06) * wood.grain})`;
       g.lineWidth = 1 + rand();
       g.beginPath();
       g.ellipse(cx, cy, 120 + j * 34, 10 + j * 7, 0, Math.PI * 0.05, Math.PI * 0.95);
@@ -224,7 +283,7 @@ function walnutTextures(seed) {
   for (let i = 0; i < 5200; i++) {
     const x = rand() * W;
     const y = rand() * H;
-    g.fillStyle = `rgba(10,6,3,${0.18 + rand() * 0.25})`;
+    g.fillStyle = `rgba(${wood.pore},${(0.18 + rand() * 0.25) * wood.grain})`;
     g.fillRect(x, y, 2 + rand() * 5, 0.8);
   }
   const map = new THREE.CanvasTexture(col);
@@ -238,11 +297,11 @@ function walnutTextures(seed) {
   return { map, roughness };
 }
 
-function wallTexture() {
+function wallTexture(color = '#1b1816') {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#1b1816';
+  g.fillStyle = color;
   g.fillRect(0, 0, 256, 256);
   const d = g.getImageData(0, 0, 256, 256);
   const rand = rng(7);
@@ -333,7 +392,8 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut' }) {
+  const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
@@ -352,10 +412,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   }
   renderer.autoClear = false;
   renderer.info.autoReset = false; // counted per frame across all passes (see perf)
-  renderer.setClearColor(0x0e0d0c, 1);
+  renderer.setClearColor(THEME.bg, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = THEME.exposure;
   renderer.shadowMap.enabled = true;
   // Shadows are re-rendered only when something that casts them moves (see shadowDirty).
   renderer.shadowMap.autoUpdate = false;
@@ -363,7 +423,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0e0d0c, 700, 1500);
+  scene.fog = new THREE.Fog(THEME.bg, 700, 1500);
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
   scene.environment = envRT.texture;
@@ -376,7 +436,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   // Room: a wall behind the shelf, lit from the top left.
   const wall = new THREE.Mesh(
     own(new THREE.PlaneGeometry(6000, 6000)),
-    own(new THREE.MeshStandardMaterial({ map: own(wallTexture()), roughness: 0.95 })),
+    own(new THREE.MeshStandardMaterial({ map: own(wallTexture(THEME.wall)), roughness: 0.95 })),
   );
   wall.position.z = -D / 2 - 8;
   wall.receiveShadow = true;
@@ -404,6 +464,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     shadowIntensity: 0.9,
     shadowBias: -0.00025,
     shadowNormalBias: 0.5,
+    ...THEME.light,
   };
   scene.environmentIntensity = LIGHT.envIntensity;
   scene.add(new THREE.HemisphereLight(LIGHT.skyColor, LIGHT.groundColor, LIGHT.hemiIntensity));
@@ -476,7 +537,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     return { scene: sc, material };
   };
   const copy = pass(COPY_FRAG, { uTex: { value: rtMain.texture } });
-  const output = pass(OUTPUT_FRAG, { uTex: { value: rtMain.texture } });
+  const output = pass(OUTPUT_FRAG, { uTex: { value: rtMain.texture }, uGrade: { value: THEME.grade }, uVignette: { value: THEME.vignette } });
   const roomRT = own(
     new THREE.WebGLCubeRenderTarget(ROOM_SIZE, {
       type: hdrType,
@@ -739,8 +800,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   // a top board, and a back panel whose compartments carry baked occlusion.
   const DEPTH = D + 26;
   const BACK_Z = -DEPTH / 2;
-  const walnutH = walnutTextures(11);
-  const walnutV = walnutTextures(29);
+  const walnutH = walnutTextures(11, THEME.wood);
+  const walnutV = walnutTextures(29, THEME.wood);
   for (const t of [walnutH.map, walnutH.roughness, walnutV.map, walnutV.roughness]) own(t);
   for (const t of [walnutV.map, walnutV.roughness]) {
     t.center.set(0.5, 0.5);
@@ -753,7 +814,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   backMap.needsUpdate = true;
   const compartAO = own(compartmentTexture(BOARD / 2 / ROW_PITCH));
   const backMat = own(
-    new THREE.MeshStandardMaterial({ map: backMap, color: 0x8c8580, roughness: 0.85, aoMap: compartAO, aoMapIntensity: 1 }),
+    new THREE.MeshStandardMaterial({ map: backMap, color: THEME.back, roughness: 0.85, aoMap: compartAO, aoMapIntensity: 1 }),
   );
   const BOARD_REF = 400;
   const boardGeo = own(new RoundedBoxGeometry(BOARD_REF, BOARD, DEPTH, 3, 1.6));
@@ -877,7 +938,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       rodMat.needsUpdate = true;
     }
     dust.visible = dustPref && q.dust && !reducedMotion;
-    deco.lights.forEach((l, k) => (l.on = k < q.pictureLights));
+    deco.lights.forEach((l, k) => (l.on = THEME.brass && k < q.pictureLights));
     corner?.setTvLight(q.tvLight);
     if (changed) scale = 1;
     renderer.setPixelRatio(basePixelRatio() * scale);
@@ -1300,7 +1361,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       m.position.set(0, boardY(i - 1), 0);
     });
     // A bar under every board that has a row below it (not the bottom board).
-    while (deco.bars.length < rows) {
+    while (THEME.brass && deco.bars.length < rows) {
       const bar = new THREE.Mesh(deco.barGeo, deco.brass);
       const strip = new THREE.Mesh(deco.stripGeo, deco.glowMat);
       strip.position.set(0, -2.9, -0.8);

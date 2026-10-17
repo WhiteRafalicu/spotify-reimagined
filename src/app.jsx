@@ -168,6 +168,14 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
         </label>
       ))}
       <label className="cds-toggle">
+        <span>Look</span>
+        <select className="cds-chip" value={settings.theme} onChange={(e) => set('theme', e.target.value)}>
+          <option value="walnut">Walnut (art deco)</option>
+          <option value="birch">Birch (bright)</option>
+          <option value="minimal">Minimal (black)</option>
+        </select>
+      </label>
+      <label className="cds-toggle">
         <span>
           Quality
           <small>Auto picks a level for your GPU{tier && quality === 'auto' ? ` (now ${tier})` : ''}.</small>
@@ -246,7 +254,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => onSettings(setSettingsState), []);
   // The TV corner is built with the scene, so switching it rebuilds the scene (see the mount effect).
-  const cornerKey = settings.tvCorner ? 'corner' : 'nocorner';
+  const cornerKey = `${settings.tvCorner ? 'corner' : 'nocorner'}|${settings.theme}`;
   const arrivals = useRef(null);
   const now = usePlayer();
   const worldRef = useRef(null);
@@ -305,6 +313,7 @@ function App() {
         assets,
         corner: settings.tvCorner,
         dust: settings.dust,
+        theme: settings.theme,
       });
     }
     s?.setNowPlaying(nowTrack());
@@ -408,7 +417,7 @@ function App() {
   }, [items, host]);
 
   const world = (
-    <div className="cds-world">
+    <div className={`cds-world is-${settings.theme}`}>
       <div
         className="cds-world-gl"
         ref={worldRef}

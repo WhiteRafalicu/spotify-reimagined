@@ -656,17 +656,19 @@ export const BOOKLET_FRAG = `
 // Shelf output: tone-map the linear HDR frame for the screen with the renderer's own settings.
 export const OUTPUT_FRAG = `
   uniform sampler2D uTex;
+  uniform float uGrade;
+  uniform float uVignette;
   varying vec2 vUv;
   void main() {
     vec3 c = texture2D(uTex, vUv).rgb;
     // A gentle vignette keeps the eye on the shelf.
     vec2 q = (vUv - 0.5) * vec2(1.0, 1.15);
-    c *= 1.0 - 0.34 * smoothstep(0.3, 0.82, length(q));
-    // Art deco grade: shadows lean deep teal, highlights lean gold.
+    c *= 1.0 - uVignette * smoothstep(0.3, 0.82, length(q));
+    // Art deco grade (Walnut): shadows lean deep teal, highlights lean gold.
     float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
     float hi = smoothstep(0.04, 0.55, lum);
-    c *= mix(vec3(0.9, 1.0, 1.03), vec3(1.07, 1.0, 0.84), hi);
-    c += vec3(0.0, 0.004, 0.005) * (1.0 - hi);
+    vec3 graded = c * mix(vec3(0.9, 1.0, 1.03), vec3(1.07, 1.0, 0.84), hi) + vec3(0.0, 0.004, 0.005) * (1.0 - hi);
+    c = mix(c, graded, uGrade);
     gl_FragColor = vec4(c, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
