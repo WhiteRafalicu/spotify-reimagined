@@ -7,6 +7,7 @@ export const DEFAULTS = {
   tvCorner: true, // the TV corner under the shelf
   dust: true, // dust drifting in the light
   theme: 'walnut', // walnut | birch | minimal
+  lang: 'auto', // auto (Spotify's language) or a code from i18n.js
 };
 const KEY = 'cd-shelf:settings';
 const EVENT = 'cd-shelf:settings';
@@ -27,7 +28,7 @@ export function setSettings(patch) {
   return next;
 }
 export function onSettings(fn) {
-  const h = (e) => fn(e.detail);
+  const h = (e) => fn({ ...DEFAULTS, ...e.detail });
   window.addEventListener(EVENT, h);
   return () => window.removeEventListener(EVENT, h);
 }

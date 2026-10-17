@@ -2,6 +2,7 @@
 // time with the music: the current line is written on as it starts, past lines fade to an erased
 // smudge, and the next line waits underneath in red.
 import * as THREE from 'three';
+import { t as tr } from './i18n';
 
 const CANVAS = [1024, 768]; // the board's 4:3 writing surface
 const MARKER = '"CDS Permanent Marker", "Permanent Marker", "Comic Sans MS", cursive';
@@ -158,7 +159,7 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     if (!ly) {
       g.fillStyle = INK.black;
       g.font = `52px ${MARKER}`;
-      g.fillText(state.lyrics === undefined ? 'listening…' : 'no lyrics for this one', 60, H / 2 + 10);
+      g.fillText(state.lyrics === undefined ? tr('listening') : tr('noLyrics'), 60, H / 2 + 10);
       g.font = `140px ${MARKER}`;
       g.fillStyle = INK.black;
       g.globalAlpha = 0.6;

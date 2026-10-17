@@ -780,6 +780,9 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   function layout() {
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
+    // Same ceiling as the shelf (shelf3d.js MAX_PIXELS).
+    const maxRatio = Math.sqrt((2560 * 1440) / (w * h));
+    if (renderer.getPixelRatio() > maxRatio) renderer.setPixelRatio(maxRatio);
     renderer.setSize(w, h, false);
     if (present) {
       canvas.width = glCanvas.width;

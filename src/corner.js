@@ -2,6 +2,7 @@
 // current track's Spotify Canvas (or its album art, music-channel style), a PS2 in the cubby and its
 // controller beside the TV. The screen's light spills onto the stand and the room.
 import * as THREE from 'three';
+import { t as tr } from './i18n';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -144,7 +145,7 @@ function drawOsd(canvas, { name, artist, paused, channel }) {
     g.fillText(s, x, y);
   };
   text(`CH ${String(channel).padStart(2, '0')}`, canvas.width - 140, 26);
-  if (paused) text('❚❚ PAUSE', 34, 26, '#ffffff');
+  if (paused) text(tr('paused'), 34, 26, '#ffffff');
   if (name) {
     g.font = '700 26px "VT323", "Courier New", monospace';
     const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
@@ -265,6 +266,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
         uOsdAlpha: { value: 1 },
         uBright: { value: 2.2 },
         uPower: { value: 0 },
+        uMotion: { value: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 },
       },
       vertexShader: CRT_VERT,
       fragmentShader: CRT_FRAG,
@@ -728,7 +730,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
         onScreenColor?.(glowColor);
       } catch {}
     }
-    const lit = (screen.power * (screen.paused ? 0.5 : 1) * (0.92 + 0.08 * Math.sin(time * 57))) * (u.uStatic.value > 0.5 ? 0.7 : 1);
+    const lit = (screen.power * (screen.paused ? 0.5 : 1) * (1 - crt.uniforms.uMotion.value * (0.08 - 0.08 * Math.sin(time * 57)))) * (u.uStatic.value > 0.5 ? 0.7 : 1);
     glow.color.lerp(u.uStatic.value > 0.5 ? STATIC_LIGHT : glowColor, 1 - Math.exp(-dt * 6));
     glow.intensity = 9 * lit;
     return moving;

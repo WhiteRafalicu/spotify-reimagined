@@ -59,8 +59,11 @@ spicetify apply
   played ones (marked as not saved), and there are always at least three rows of boards.
 - **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
 - **Settings** in the header: switch off any of it (the shelf as Home, the hidden sidebar, the
-  spinning CD, the TV corner, the dust), pick a quality level, or press **Back to classic Spotify**
-  to undo every change to Spotify's own interface in one click. The shelf stays one click away.
+  spinning CD, the TV corner, the dust), pick a **look** (Walnut art deco, bright Birch, black
+  Minimal), a **language** and a quality level, or press **Back to classic Spotify** to undo every
+  change to Spotify's own interface in one click. The shelf stays one click away.
+- **Languages:** English, Română, Español, Deutsch, Français and Português, following Spotify's own
+  language unless you pick one. To add one, copy the `en` block in `src/i18n.js` and translate it.
 - **Quality**, also in Settings: Auto picks a level for your GPU, and the resolution adapts to keep it
   smooth. See [Performance](#performance).
 
@@ -154,9 +157,11 @@ How:
 - **Recycled cases.** Only the rows in view (plus one either side) hold a slot: glass instances, booklet, spine, disc, contact shadow and texture layers. Rows scrolling in reuse freed slots, so memory and drawing stay flat for any library size. A newly slotted case shows a neutral placeholder layer until its spine is written (a few milliseconds of writes per frame, more while the view is still), and the finished pixels are cached for cases seen recently.
 - **Two builds of the case.** In the row only the hinge edge shows, so those cases use a shelf build of the cd-case geometry (rails, hinge, floor: 9k triangles). Hovered, pulled-out and arriving cases switch to the full build (40k) with the interior.
 - **Quality presets.** Auto picks High, Medium or Low from the GPU (one lower on battery); the header's Quality menu overrides it. Presets set the resolution cap (2×/1.5×/1×), anti-aliasing (4×/2×/off), shadow resolution, light bounces inside the glass (4/3/2), dust, picture-light pools and the TV's area light.
+- **Never too big.** Whatever the screen density or setting, the shelf and the open case render at most 2560 × 1440 pixels' worth, so their buffers can't exhaust a laptop's memory.
+- **Safety net.** If Auto still can't keep up at half resolution, it steps down a quality level (High → Medium → Low) and says so.
 - **Adaptive resolution.** The GPU time of each frame is measured (timer queries, or frame timing where those aren't available). Above budget the render scale steps down (to 50% at most), with plenty of headroom it steps back up.
 - **Cheap lighting.** The picture-light pools are a diffuse term injected into the shelf's materials instead of six point lights. Lights are dimmed rather than switched off, so materials never recompile mid-scroll. Shadows of moving cases refresh at most 15 times a second, and the shadow area is three screens tall so scrolling rarely moves it.
-- **Idle.** 30 fps for a few seconds after the last input or motion (15 fps unfocused), then nothing at all, unless the TV is on screen. With "reduce motion" turned on in the system settings, there's no camera drift and no dust.
+- **Idle.** 30 fps for a few seconds after the last input or motion (15 fps unfocused), then nothing at all, unless the TV is on screen. With "reduce motion" turned on in the system settings, there's no camera drift, no dust, no spinning player-bar CD and no flicker or rolling bar on the TV.
 - **The room appears fast.** The scene is parked, not destroyed, when you leave the shelf (released after 10 minutes away), so coming back draws in about 0.15 s with everything in place. Models are parsed once per Spotify session, start loading right after the shelf's first frames, all in parallel, and stay hidden until their textures are uploaded (one per idle moment) and their shaders compiled in the background, so they appear without a stall. Fresh load: room ready in about 0.6–1.0 s, no main-thread stalls after the shelf opens.
 - **Lean assets.** Room models simplified (the Sony set 240k → 36.5k triangles in Blender; ashtray and whiteboard to a quarter) and meshopt-compressed, with 512 px textures (the room's objects are small on screen). Covers come from Spotify's own browser cache on later sessions.
 

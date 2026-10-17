@@ -2,6 +2,7 @@
 // key light with dust in it and a lamp that follows the pointer. Cases move on springs, so hovering,
 // filtering and re-sorting all settle with a little life instead of snapping.
 import * as THREE from 'three';
+import { t as tr } from './i18n';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { CASE, HALF, HINGE, lidGeometry, trayGeometry, withDetail } from './caseGeometry';
@@ -29,6 +30,7 @@ const ROW_PX = 390; // roughly how tall one shelf row is on screen
 const HEADER = 0.13; // fraction of the view the DOM header covers
 
 const MIN_ROWS = 3;
+export const MAX_PIXELS = 2560 * 1440;
 const CLEAR_Z = D + 6; // how far a case slides out before it may turn
 const SPRING_K = 170;
 const SPRING_C = 20;
@@ -392,7 +394,7 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut' }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
@@ -910,6 +912,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     upd();
   });
   let qualityMode = 'auto';
+  let autoCap = null;
   function basePixelRatio() {
     return dbg.dpr || Math.min(window.devicePixelRatio || 1, q.maxDpr);
   }
@@ -919,6 +922,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     if (mode === 'auto') {
       name = autoTier(renderer);
       if (onBattery) name = TIERS[Math.max(0, TIERS.indexOf(name) - 1)];
+      // A level Auto already had to step down from this session (see adaptEnd).
+      if (autoCap && TIERS.indexOf(name) > TIERS.indexOf(autoCap)) name = autoCap;
     }
     if (!QUALITY[name]) name = 'high';
     const changed = name !== tierName;
@@ -949,12 +954,14 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
 
   // Adaptive render scale. GPU time per frame comes from a timer query where the driver offers one,
   // otherwise from the gap between busy frames. Too slow: scale down; plenty of headroom: back up.
-  const adapt = { samples: [], cooldownUntil: 0, ext: null, open: null, pending: [] };
+  const adapt = { samples: [], cooldownUntil: 0, ext: null, open: null, pending: [], strikes: 0 };
   {
     const gl = renderer.getContext();
     adapt.ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   }
-  const GPU_BUDGET = 1000 / 60 * 0.75; // ms
+  const GPU_BUDGET_MS = 1000 / 60 * 0.75;
+  // dbg.budget lets a test pretend the GPU is slower than it is.
+  const budget = () => dbg.budget || GPU_BUDGET_MS;
   function adaptBegin() {
     if (!adapt.ext || dbg.timer || adapt.open) return;
     const gl = renderer.getContext();
@@ -986,8 +993,20 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     const now = performance.now();
     if (now < adapt.cooldownUntil) return;
     let next = scale;
-    if (median > GPU_BUDGET * 1.15) next = Math.max(0.5, scale * Math.sqrt(GPU_BUDGET / median));
-    else if (median < GPU_BUDGET * 0.45 && scale < 1) next = Math.min(1, scale * 1.15);
+    // Already at the lowest render scale and still too slow: step the Auto quality down a level.
+    if (median > budget() * 1.15 && scale <= 0.5 && qualityMode === 'auto' && tierName !== 'low') {
+      if (++adapt.strikes >= 2) {
+        adapt.strikes = 0;
+        autoCap = TIERS[TIERS.indexOf(tierName) - 1];
+        applyQuality('auto');
+        adapt.cooldownUntil = now + 4000;
+        onQualityDrop?.(tierName);
+      }
+      return;
+    }
+    adapt.strikes = 0;
+    if (median > budget() * 1.15) next = Math.max(0.5, scale * Math.sqrt(budget() / median));
+    else if (median < budget() * 0.45 && scale < 1) next = Math.min(1, scale * 1.15);
     next = Math.round(next * 20) / 20;
     if (next !== scale) {
       scale = next;
@@ -1285,6 +1304,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     wake();
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
+    // Never render more than MAX_PIXELS, whatever the screen density, quality or debug setting asks:
+    // past that, the HDR + MSAA buffers alone can exhaust a laptop's memory.
+    const maxRatio = Math.sqrt(MAX_PIXELS / (w * h));
+    if (renderer.getPixelRatio() > maxRatio) renderer.setPixelRatio(maxRatio);
     renderer.setSize(w, h, false);
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     rtMain.setSize(size.x, size.y);
@@ -1905,7 +1928,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       container.style.cursor = onTvNow ? 'pointer' : '';
       if (onTvNow !== overTv) {
         overTv = onTvNow;
-        handlers.onHover?.(onTvNow ? { name: 'CRT TV', artist: 'click to play or pause' } : null);
+        handlers.onHover?.(onTvNow ? { name: tr('tv'), artist: tr('tvHint') } : null);
       }
     } else if (overTv) overTv = false;
   };
@@ -2035,8 +2058,9 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     get quality() {
       return { mode: qualityMode, tier: tierName, scale, gpu: gpuName(renderer) };
     },
-    profile({ busy, timing, pixelRatio, baseDpr } = {}) {
+    profile({ busy, timing, pixelRatio, baseDpr, budget: budgetMs } = {}) {
       if (busy !== undefined) dbg.busy = busy;
+      if (budgetMs !== undefined) dbg.budget = budgetMs;
       if (arguments[0]?.pictureLights !== undefined) deco.lights.forEach((l, k) => (l.on = k < arguments[0].pictureLights));
       // Pretend the screen has this pixel density (tests the adaptive scale).
       if (baseDpr !== undefined) {

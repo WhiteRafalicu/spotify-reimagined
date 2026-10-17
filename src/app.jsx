@@ -5,6 +5,7 @@ import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, getSettings, onSettings, setSettings } from './settings';
+import { LANGUAGE_NAMES, t } from './i18n';
 
 const { useEffect, useMemo, useRef, useState, useCallback } = Spicetify.React;
 
@@ -113,21 +114,21 @@ function Stage({ item, now, onClose, onShown }) {
       <div className="cds-stage-gl" ref={box} />
       <div className="cds-hud">
         <button className="cds-chip" onClick={() => (stage.current ? stage.current.leave() : onClose())}>
-          ← Back to the shelf
+          {t('back')}
         </button>
         <button className="cds-chip" onClick={() => openPage(item)}>
-          Open {item.kind}
+          {item.kind === 'playlist' ? t('openPlaylist') : t('openAlbum')}
         </button>
         <button className="cds-chip is-play" onClick={() => playOrPause(item)}>
-          {live && now.playing ? 'Pause' : 'Play'}
+          {live && now.playing ? t('pause') : t('play')}
         </button>
       </div>
       <p className="cds-hint">
         {failed
-          ? 'WebGL is unavailable, so the case could not be drawn.'
+          ? t('caseFailed')
           : open
-            ? 'Click a track to play it · click the disc to play or pause · drag to turn · Esc to put it back'
-            : 'Click the case to open it · drag to turn · Esc to put it back'}
+            ? t('hintOpen')
+            : t('hintClosed')}
       </p>
     </div>,
     document.body,
@@ -141,20 +142,20 @@ let parked = null; // { shelf, timer }
 let keptItems = null;
 
 const TOGGLES = [
-  ['home', 'Open Spotify on the shelf', 'Replaces Home. Off: Home is Spotify’s own again.'],
-  ['hideSidebar', 'Hide the Your Library sidebar', 'The shelf is your library.'],
-  ['discCover', 'Spinning CD in the player bar', 'Click it to open the playing album’s case.'],
-  ['tvCorner', 'TV corner under the shelf', 'The TV, the console and the lyrics whiteboard.'],
-  ['dust', 'Dust in the light', ''],
+  ['home', 'setHome', 'setHomeHint'],
+  ['hideSidebar', 'setSidebar', 'setSidebarHint'],
+  ['discCover', 'setDisc', 'setDiscHint'],
+  ['tvCorner', 'setCorner', 'setCornerHint'],
+  ['dust', 'setDust', ''],
 ];
 
 function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
   const set = (k, v) => setSettings({ [k]: v });
   return (
-    <div className="cds-settings" role="dialog" aria-label="CD Shelf settings">
+    <div className="cds-settings" role="dialog" aria-label={t('settingsLabel')}>
       <div className="cds-settings-head">
-        <b>Settings</b>
-        <button className="cds-chip" onClick={onClose} aria-label="Close settings">
+        <b>{t('settings')}</b>
+        <button className="cds-chip" onClick={onClose} aria-label={t('closeSettings')}>
           ✕
         </button>
       </div>
@@ -162,29 +163,40 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
         <label key={k} className="cds-toggle">
           <input type="checkbox" checked={settings[k]} onChange={(e) => set(k, e.target.checked)} />
           <span>
-            {label}
-            {hint && <small>{hint}</small>}
+            {t(label)}
+            {hint && <small>{t(hint)}</small>}
           </span>
         </label>
       ))}
       <label className="cds-toggle">
-        <span>Look</span>
+        <span>{t('language')}</span>
+        <select className="cds-chip" value={settings.lang} onChange={(e) => set('lang', e.target.value)}>
+          <option value="auto">{t('langAuto')}</option>
+          {Object.entries(LANGUAGE_NAMES).map(([code, name]) => (
+            <option key={code} value={code}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="cds-toggle">
+        <span>{t('look')}</span>
         <select className="cds-chip" value={settings.theme} onChange={(e) => set('theme', e.target.value)}>
-          <option value="walnut">Walnut (art deco)</option>
-          <option value="birch">Birch (bright)</option>
-          <option value="minimal">Minimal (black)</option>
+          <option value="walnut">{t('lookWalnut')}</option>
+          <option value="birch">{t('lookBirch')}</option>
+          <option value="minimal">{t('lookMinimal')}</option>
         </select>
       </label>
       <label className="cds-toggle">
         <span>
-          Quality
-          <small>Auto picks a level for your GPU{tier && quality === 'auto' ? ` (now ${tier})` : ''}.</small>
+          {t('quality')}
+          <small>{t('qualityHint', { now: tier && quality === 'auto' ? t('qualityNow', { tier: t('q' + tier[0].toUpperCase() + tier.slice(1)) }) : '' })}</small>
         </span>
         <select className="cds-chip" value={quality} onChange={(e) => setQuality(e.target.value)}>
-          <option value="auto">Auto</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
+          <option value="auto">{t('qAuto')}</option>
+          <option value="high">{t('qHigh')}</option>
+          <option value="medium">{t('qMedium')}</option>
+          <option value="low">{t('qLow')}</option>
         </select>
       </label>
       <div className="cds-settings-foot">
@@ -195,13 +207,13 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
             Spicetify.Platform.History.push('/', { cdsHome: true });
           }}
         >
-          Back to classic Spotify
+          {t('classic')}
         </button>
         <button className="cds-chip" onClick={() => setSettings({ ...DEFAULTS })}>
-          Reset
+          {t('reset')}
         </button>
       </div>
-      <p className="cds-settings-note">The shelf stays one click away (its disc icon in the top bar). To remove it completely, see the README.</p>
+      <p className="cds-settings-note">{t('settingsNote')}</p>
     </div>
   );
 }
@@ -314,6 +326,11 @@ function App() {
         corner: settings.tvCorner,
         dust: settings.dust,
         theme: settings.theme,
+        onQualityDrop: (to) => {
+          setTier(to);
+          setNotice({ name: t('qualityDropped', { tier: t('q' + to[0].toUpperCase() + to.slice(1)) }), artist: t('qualityDroppedHint') });
+          setTimeout(() => setNotice(null), 6000);
+        },
       });
     }
     s?.setNowPlaying(nowTrack());
@@ -357,7 +374,7 @@ function App() {
             arrivals.current = new Set(added.map((i) => i.uri));
             setItems(next);
             if (!added.length) return;
-            setNotice(added.length === 1 ? { name: added[0].name, artist: `added to the shelf` } : { name: `${added.length} discs`, artist: 'added to the shelf' });
+            setNotice(added.length === 1 ? { name: added[0].name, artist: t('added') } : { name: t('addedMany', { n: added.length }), artist: t('added') });
             clearTimeout(hide);
             hide = setTimeout(() => setNotice(null), 3500);
           })
@@ -423,39 +440,39 @@ function App() {
         ref={worldRef}
         tabIndex={0}
         role="application"
-        aria-label="CD shelf. Arrow keys move between discs, Page Up and Page Down move faster, Enter opens the selected disc, Escape puts it back."
+        aria-label={t('shelfLabel')}
         aria-describedby="cds-caption"
       />
       <header className="cds-head">
         <div>
-          <h1>CD Shelf</h1>
+          <h1>{t('title')}</h1>
           <p>
-            {items ? `${shown.length} of ${items.length} discs` : 'Dusting off the shelf…'}
-            {suggestedCount > 0 && ` · ${suggestedCount} recently played, save albums to make them yours`}
+            {items ? t('discs', { shown: shown.length, total: items.length }) : t('loading')}
+            {suggestedCount > 0 && t('suggested', { n: suggestedCount })}
           </p>
         </div>
         <div className="cds-tools">
-          <input className="cds-search" placeholder="Find a disc" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="cds-search" placeholder={t('find')} value={query} onChange={(e) => setQuery(e.target.value)} />
           {[
-            ['all', 'All'],
-            ['album', 'Albums'],
-            ['playlist', 'Playlists'],
+            ['all', t('all')],
+            ['album', t('albums')],
+            ['playlist', t('playlists')],
           ].map(([k, label]) => (
             <button key={k} className={`cds-chip${filter === k ? ' is-on' : ''}`} onClick={() => setFilter(k)}>
               {label}
             </button>
           ))}
           <select className="cds-chip" value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="recent">Recently added</option>
-            <option value="played">Recently played</option>
-            <option value="artist">Artist</option>
-            <option value="name">Title</option>
+            <option value="recent">{t('sortRecent')}</option>
+            <option value="played">{t('sortPlayed')}</option>
+            <option value="artist">{t('sortArtist')}</option>
+            <option value="name">{t('sortTitle')}</option>
           </select>
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
-            Spotify home
+            {t('spotifyHome')}
           </button>
           <button className={`cds-chip${showSettings ? ' is-on' : ''}`} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
-            Settings
+            {t('settings')}
           </button>
         </div>
       </header>
@@ -468,26 +485,25 @@ function App() {
             <b>{(hover || notice).name}</b>
             <span>
               {(hover || notice).artist}
-              {hover?.suggested ? ' · recently played, not saved' : ''}
+              {hover?.suggested ? t('notSaved') : ''}
             </span>
           </>
         )}
       </div>
       {error && (
         <div className="cds-empty is-action">
-          <p>Spotify didn't hand over your library ({error}).</p>
+          <p>{t('libraryError', { error })}</p>
           <button className="cds-chip" onClick={loadAll}>
-            Try again
+            {t('tryAgain')}
           </button>
         </div>
       )}
       {failed && (
         <p className="cds-empty">
-          3D graphics (WebGL) aren't available in Spotify right now, so the shelf can't be drawn. Restarting Spotify
-          usually helps; on Linux with an NVIDIA GPU, see Troubleshooting in the README.
+          {t('noWebgl')}
         </p>
       )}
-      {items && !shown.length && <p className="cds-empty">No discs match.</p>}
+      {items && !shown.length && <p className="cds-empty">{t('noMatch')}</p>}
     </div>
   );
 
@@ -517,17 +533,17 @@ class Guard extends Spicetify.React.Component {
     if (!this.state.error) return this.props.children;
     return (
       <div className="cds-root cds-crash">
-        <h1>The shelf fell over</h1>
+        <h1>{t('crashTitle')}</h1>
         <p>{String(this.state.error?.message || this.state.error)}</p>
         <div className="cds-tools">
           <button className="cds-chip is-play" onClick={() => this.setState({ error: null })}>
-            Try again
+            {t('tryAgain')}
           </button>
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
-            Spotify home
+            {t('spotifyHome')}
           </button>
         </div>
-        <p className="cds-settings-note">If it keeps happening, an issue with this message on GitHub helps fix it.</p>
+        <p className="cds-settings-note">{t('crashNote')}</p>
       </div>
     );
   }

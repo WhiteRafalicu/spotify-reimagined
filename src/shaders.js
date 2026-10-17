@@ -701,6 +701,7 @@ export const CRT_FRAG = `
   uniform float uOsdAlpha;
   uniform float uBright;
   uniform float uPower;    // 0 = off (dark glass), 1 = on
+  uniform float uMotion;   // 0 with reduce motion: no flicker or rolling bar
   varying vec2 vUv;
   varying vec3 vP;
   varying vec3 vN;
@@ -732,8 +733,8 @@ export const CRT_FRAG = `
       0.82 + 0.18 * step(2.0, mod(px, 3.0)));
     vec3 col = img * lines * mask;
 
-    float roll = 1.0 + 0.05 * smoothstep(0.0, 0.12, 0.12 - abs(fract(uv.y * 0.6 - uTime * 0.07) - 0.5));
-    col *= roll * (0.975 + 0.025 * sin(uTime * 57.0));
+    float roll = 1.0 + 0.05 * uMotion * smoothstep(0.0, 0.12, 0.12 - abs(fract(uv.y * 0.6 - uTime * 0.07) - 0.5));
+    col *= roll * (1.0 - uMotion * (0.025 - 0.025 * sin(uTime * 57.0)));
 
     float n = hash(floor(uv * vec2(320.0, 240.0)) + floor(uTime * 24.0) * 7.31);
     vec3 snow = vec3(n) * (0.75 + 0.25 * sin(uv.y * 900.0 + uTime * 40.0));

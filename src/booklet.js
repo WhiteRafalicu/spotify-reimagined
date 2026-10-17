@@ -1,3 +1,4 @@
+import { t as tr } from './i18n';
 // The inside page of the booklet: a tracklist drawn on a 1024² canvas, and the same layout
 // read back to turn a click on the page into a track index. Up to 40 tracks fit on the page in
 // one or two columns; longer tracklists become a single column that scrolls.
@@ -105,7 +106,7 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   g.textBaseline = 'alphabetic';
   g.fillStyle = 'rgba(255,255,255,0.55)';
   g.font = `600 22px ${FONT}`;
-  g.fillText(album.kind === 'playlist' ? 'PLAYLIST' : (album.albumType || 'ALBUM').toUpperCase(), MARGIN, 108);
+  g.fillText(album.kind === 'playlist' ? tr('kindPlaylist') : ({ single: tr('kindSingle'), ep: tr('kindEp'), compilation: tr('kindCompilation') }[String(album.albumType || '').toLowerCase()] || tr('kindAlbum')), MARGIN, 108);
 
   g.fillStyle = '#fff';
   g.font = `800 54px ${FONT}`;
@@ -121,8 +122,8 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   if (!album.tracks) {
     g.fillStyle = 'rgba(255,255,255,0.5)';
     g.font = `500 28px ${FONT}`;
-    g.fillText(album.tracksFailed ? "Couldn't read the tracklist." : 'Reading the tracklist…', MARGIN, TOP + 40);
-    if (album.tracksFailed) g.fillText('Click the disc to play it all.', MARGIN, TOP + 84);
+    g.fillText(album.tracksFailed ? tr('tracksFailed') : tr('reading'), MARGIN, TOP + 40);
+    if (album.tracksFailed) g.fillText(tr('tracksFailedHint'), MARGIN, TOP + 84);
     return;
   }
 
@@ -200,6 +201,6 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   g.font = `500 22px ${FONT}`;
   g.fillStyle = 'rgba(255,255,255,0.45)';
   const total = album.tracks.reduce((a, t) => a + (t.ms || 0), 0);
-  const foot = `${album.tracks.length} tracks · ${Math.round(total / 60000)} min${lay.scrollable ? ' · scroll for more' : ''}`;
+  const foot = tr('booklet', { n: album.tracks.length, min: Math.round(total / 60000) }) + (lay.scrollable ? tr('scrollMore') : '');
   g.fillText(foot, MARGIN, SIZE - 46);
 }
