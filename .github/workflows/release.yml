@@ -1,5 +1,6 @@
 # Push a tag like v0.1.0: builds the app with its models served from this repo through jsDelivr,
 # and attaches cd-shelf.zip to a GitHub Release (what install.sh / install.ps1 download).
+# Models are pinned to the exact commit, so a CDN copy can never be stale.
 name: release
 on:
   push:
@@ -18,7 +19,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          CDS_ASSET_BASE: https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}/release-assets
+          CDS_ASSET_BASE: https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.sha }}/release-assets
       - name: Package
         run: cd dist && zip -r ../cd-shelf.zip index.js extension.js manifest.json
       - name: Release
