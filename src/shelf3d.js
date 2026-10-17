@@ -28,6 +28,7 @@ const FOV = 32;
 const ROW_PX = 390; // roughly how tall one shelf row is on screen
 const HEADER = 0.13; // fraction of the view the DOM header covers
 
+const MIN_ROWS = 3;
 const CLEAR_Z = D + 6; // how far a case slides out before it may turn
 const SPRING_K = 170;
 const SPRING_C = 20;
@@ -1248,7 +1249,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   // a little, so the table's top and front edge frame the shot rather than the whole table.
   const DOLLY = 0.22;
   const cornerMid = () => corner.standTopY + 150;
-  const shelfEndY = () => rowY(Math.max(0, rowCount - 1)) - H / 2 - BOARD - 26 + view.visH / 2;
+  const shelfEndY = () => rowY(Math.max(MIN_ROWS, rowCount) - 1) - H / 2 - BOARD - 26 + view.visH / 2;
   const cornerView = (y) => {
     if (!corner) return 0;
     const a = Math.min(topY(), shelfEndY());
@@ -1264,7 +1265,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
   // Scroll limits: the first row sits just under the DOM header; the last board rests near the bottom.
   const topY = () => H / 2 + 26 - view.visH * (0.5 - HEADER);
   const bottomY = () => {
-    const shelfEnd = rowY(Math.max(0, rowCount - 1)) - H / 2 - BOARD - 26 + view.visH / 2;
+    const shelfEnd = rowY(Math.max(MIN_ROWS, rowCount) - 1) - H / 2 - BOARD - 26 + view.visH / 2;
     if (!corner) return Math.min(topY(), shelfEnd);
     // With the TV corner, scrolling continues down to the middle of the corner (the camera also
     // pulls back on the way, see cornerView).
@@ -1282,7 +1283,9 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
       c.home.x = -rowW / 2 + PITCH_X * (k + 0.5);
       c.home.y = rowY(r);
     });
-    const rows = Math.max(rowCount, 1);
+    // At least three rows of boards: a short library leaves empty shelves (room to grow) rather than
+    // a stub, and keeps the TV corner below the opening view.
+    const rows = Math.max(rowCount, MIN_ROWS);
     const unitW = rowW + 30;
     const boardY = (r) => rowY(r) - H / 2 - BOARD / 2 - 0.2; // the board under row r
     while (boards.length < rows + 1) {

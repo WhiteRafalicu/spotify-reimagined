@@ -121,7 +121,8 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   if (!album.tracks) {
     g.fillStyle = 'rgba(255,255,255,0.5)';
     g.font = `500 28px ${FONT}`;
-    g.fillText('Reading the tracklist…', MARGIN, TOP + 40);
+    g.fillText(album.tracksFailed ? "Couldn't read the tracklist." : 'Reading the tracklist…', MARGIN, TOP + 40);
+    if (album.tracksFailed) g.fillText('Click the disc to play it all.', MARGIN, TOP + 84);
     return;
   }
 

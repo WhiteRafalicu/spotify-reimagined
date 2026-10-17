@@ -1,7 +1,7 @@
 // CD Shelf: your Spotify library as a rack of jewel cases. Pull one out to open it and play.
 import { createShelf } from './shelf3d';
 import { createStage } from './stage';
-import { canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, getSettings, onSettings, setSettings } from './settings';
@@ -79,14 +79,15 @@ function Stage({ item, now, onClose, onShown }) {
       onFail: () => setFailed(true),
     });
     stage.current = s;
-    loadTracks(item)
+    retry(() => loadTracks(item))
       .then((tracks) => {
         album.tracks = tracks;
         s?.refresh();
       })
       .catch((e) => {
         console.error('[cd-shelf] tracks', e);
-        album.tracks = [];
+        album.tracks = null;
+        album.tracksFailed = true;
         s?.refresh();
       });
     const onKey = (e) => {
@@ -197,6 +198,14 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
   );
 }
 
+// A shelf with fewer than this many discs is topped up with recently played albums.
+const SPARSE = 12;
+async function withSuggestions(items) {
+  if (items.length >= SPARSE) return items;
+  const extra = await recentAlbums(items.map((i) => i.uri), SPARSE * 2 - items.length);
+  return [...items, ...extra];
+}
+
 function App() {
   const [items, setItemsState] = useState(() => keptItems);
   const setItems = useCallback((v) => {
@@ -207,6 +216,16 @@ function App() {
     });
   }, []);
   const [error, setError] = useState(null);
+  const loadAll = useCallback(() => {
+    setError(null);
+    retry(() => loadLibrary((partial) => setItems((cur) => (cur && cur.length >= partial.length ? cur : partial))))
+      .then(withSuggestions)
+      .then(setItems)
+      .catch((e) => {
+        console.error('[cd-shelf]', e);
+        setError(String(e?.message || e));
+      });
+  }, []);
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('recent');
   const [query, setQuery] = useState('');
@@ -236,16 +255,12 @@ function App() {
   useEffect(() => {
     injectStyle();
     // Pages appear as they arrive, so a big library doesn't sit on an empty shelf.
-    loadLibrary((partial) => setItems((cur) => (cur && cur.length >= partial.length ? cur : partial)))
-      .then(setItems)
-      .catch((e) => {
-        console.error('[cd-shelf]', e);
-        setError(String(e?.message || e));
-      });
+    loadAll();
     // The 3D room fills Spotify's main view, above the page's own scroller.
     setHost(document.querySelector('.Root__main-view') || document.body);
   }, []);
 
+  const suggestedCount = useMemo(() => (items || []).filter((i) => i.suggested).length, [items]);
   const shown = useMemo(() => {
     if (!items) return [];
     const q = query.trim().toLowerCase();
@@ -325,6 +340,7 @@ function App() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         loadLibrary()
+          .then(withSuggestions)
           .then((next) => {
             const before = new Set((itemsRef.current || []).map((i) => i.uri));
             const added = next.filter((i) => !before.has(i.uri));
@@ -396,7 +412,10 @@ function App() {
       <header className="cds-head">
         <div>
           <h1>CD Shelf</h1>
-          <p>{items ? `${shown.length} of ${items.length} discs` : 'Dusting off the shelf…'}</p>
+          <p>
+            {items ? `${shown.length} of ${items.length} discs` : 'Dusting off the shelf…'}
+            {suggestedCount > 0 && ` · ${suggestedCount} recently played, save albums to make them yours`}
+          </p>
         </div>
         <div className="cds-tools">
           <input className="cds-search" placeholder="Find a disc" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -430,12 +449,27 @@ function App() {
         {(hover || notice) && (
           <>
             <b>{(hover || notice).name}</b>
-            <span>{(hover || notice).artist}</span>
+            <span>
+              {(hover || notice).artist}
+              {hover?.suggested ? ' · recently played, not saved' : ''}
+            </span>
           </>
         )}
       </div>
-      {error && <p className="cds-empty">Couldn't read your library: {error}</p>}
-      {failed && <p className="cds-empty">WebGL is unavailable, so the shelf could not be drawn.</p>}
+      {error && (
+        <div className="cds-empty is-action">
+          <p>Spotify didn't hand over your library ({error}).</p>
+          <button className="cds-chip" onClick={loadAll}>
+            Try again
+          </button>
+        </div>
+      )}
+      {failed && (
+        <p className="cds-empty">
+          3D graphics (WebGL) aren't available in Spotify right now, so the shelf can't be drawn. Restarting Spotify
+          usually helps; on Linux with an NVIDIA GPU, see Troubleshooting in the README.
+        </p>
+      )}
       {items && !shown.length && <p className="cds-empty">No discs match.</p>}
     </div>
   );
@@ -450,6 +484,42 @@ function App() {
   );
 }
 
+// If anything in the shelf throws while rendering, show a way out instead of a blank page.
+class Guard extends Spicetify.React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error('[cd-shelf] crashed', error, info?.componentStack);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="cds-root cds-crash">
+        <h1>The shelf fell over</h1>
+        <p>{String(this.state.error?.message || this.state.error)}</p>
+        <div className="cds-tools">
+          <button className="cds-chip is-play" onClick={() => this.setState({ error: null })}>
+            Try again
+          </button>
+          <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
+            Spotify home
+          </button>
+        </div>
+        <p className="cds-settings-note">If it keeps happening, an issue with this message on GitHub helps fix it.</p>
+      </div>
+    );
+  }
+}
+
 export default function render() {
-  return <App />;
+  return (
+    <Guard>
+      <App />
+    </Guard>
+  );
 }

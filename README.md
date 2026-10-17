@@ -53,6 +53,8 @@ spicetify apply
 - **The TV corner.** The TV mirrors the Canvas video Spotify shows in its Now Playing sidebar (keep
   the sidebar open for it), or the cover art, music-channel style, through a CRT effect. The
   whiteboard shows Spotify's synced lyrics.
+- **Small libraries work too:** a shelf with only a few saved albums is topped up with recently
+  played ones (marked as not saved), and there are always at least three rows of boards.
 - **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
 - **Settings** in the header: switch off any of it (the shelf as Home, the hidden sidebar, the
   spinning CD, the TV corner, the dust), pick a quality level, or press **Back to classic Spotify**

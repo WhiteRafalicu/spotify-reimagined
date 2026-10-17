@@ -342,3 +342,45 @@ export function createPlayerClock() {
     return shown.pos;
   };
 }
+
+// Albums played recently that aren't saved, to fill a nearly empty shelf (newest first).
+export async function recentAlbums(exclude, limit = 24) {
+  try {
+    const r = await Spicetify.Platform.PlayHistoryAPI.getContents({ limit: 100 });
+    const out = [];
+    const seen = new Set(exclude);
+    for (const t of r?.items || []) {
+      const a = t.album;
+      if (!a?.uri || seen.has(a.uri)) continue;
+      seen.add(a.uri);
+      const img = toHttps((a.images || []).find((i) => i.width === 300)?.url || a.images?.[0]?.url);
+      if (!img) continue;
+      out.push({
+        kind: 'album',
+        uri: a.uri,
+        name: a.name,
+        artist: (t.artists || []).map((x) => x.name).join(', '),
+        thumb: img,
+        art: large(img),
+        suggested: true,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('[cd-shelf] play history', e);
+    return [];
+  }
+}
+
+// Retries a flaky internal call a couple of times before giving up.
+export async function retry(fn, tries = 3, wait = 800) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, wait * (i + 1)));
+    }
+  }
+}

@@ -247,3 +247,22 @@ select.cds-chip option {
   color: rgba(255, 255, 255, 0.45);
   font-size: 11px;
 }
+
+.cds-empty.is-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+.cds-empty.is-action p {
+  margin: 0;
+}
+.cds-crash {
+  padding: 48px 32px;
+  color: #fff;
+}
+.cds-crash h1 {
+  font-size: 32px;
+  margin: 0 0 8px;
+}
