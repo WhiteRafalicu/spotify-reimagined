@@ -12,7 +12,8 @@ r.setSize(960, 600);
 document.body.appendChild(r.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x888888);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 3));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(-1, 2, 1.5); scene.add(sun);
 const g = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/' + (q.get('dir') || 'assets') + '/' + q.get('m') + '.glb');
 scene.add(g.scene);
 g.scene.updateMatrixWorld(true);
@@ -22,8 +23,13 @@ const k = Math.max(s.x, s.y, s.z);
 scene.add(new THREE.AxesHelper(k * 0.9).translateX(box.min.x).translateY(box.min.y).translateZ(box.min.z));
 const cam = new THREE.PerspectiveCamera(35, 960 / 600, k * 0.01, k * 20);
 const dir = (q.get('v') || '0.5,0.45,1.6').split(',').map(Number);
-cam.position.copy(c).add(new THREE.Vector3(...dir).normalize().multiplyScalar(k * 1.6));
-cam.lookAt(c);
+// t=x,y,z (look at this point) and d=distance (both in model units) frame a close-up.
+const target = q.get('t') ? new THREE.Vector3(...q.get('t').split(',').map(Number)) : c;
+const dist = q.get('d') ? Number(q.get('d')) : k * 1.6;
+cam.position.copy(target).add(new THREE.Vector3(...dir).normalize().multiplyScalar(dist));
+cam.near = dist * 0.02;
+cam.updateProjectionMatrix();
+cam.lookAt(target);
 r.render(scene, cam);
 document.title = JSON.stringify({ size: s.toArray().map((v) => +v.toFixed(4)), min: box.min.toArray().map((v) => +v.toFixed(4)) });
 </script>

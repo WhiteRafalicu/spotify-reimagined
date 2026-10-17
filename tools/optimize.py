@@ -57,34 +57,17 @@ for o in meshes:
     bpy.ops.object.mode_set(mode='OBJECT')
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 
-# Close the PlayStation's lid (it's modelled standing open): find its plane, then turn it about its
-# hinge (the edge nearest the console top) until it lies flat on the body.
-import numpy as np
-cap = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('ps1_cap'))
-body = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('Ps1_body_1'))
-V = np.array([cap.matrix_world @ v.co for v in cap.data.vertices])
-ctr = V.mean(axis=0)
-_, _, vt = np.linalg.svd(V - ctr)
-n = Vector(vt[2]).normalized()
-up = Vector((0, 0, 1))
-if n.dot(up) < 0: n = -n
-body_top = max((body.matrix_world @ Vector(c)).z for c in body.bound_box)
-low = V[V[:, 2] < V[:, 2].min() + 0.012]
-hinge = Vector(low.mean(axis=0))
-axis = n.cross(up)
-ang = n.angle(up)
-if axis.length > 1e-6 and ang > math.radians(3):
-    axis.normalize()
-    R = Matrix.Translation(hinge) @ Matrix.Rotation(ang, 4, axis) @ Matrix.Translation(-hinge)
-    cap.matrix_world = R @ cap.matrix_world
-    # Rest it on the body (small lift so it doesn't sink in).
-    zmin = min((cap.matrix_world @ v.co).z for v in cap.data.vertices)
-    cap.matrix_world = Matrix.Translation((0, 0, body_top - zmin - 0.0015)) @ cap.matrix_world
-    print(f'LID closed by {math.degrees(ang):.1f} deg')
+# Close the PlayStation's lid. It's modelled standing 50 degrees open, and its node's pivot is the
+# hinge, so clearing that node's rotation lays it in its recess exactly as modelled.
+cap_node = next(o for o in bpy.data.objects if o.name.startswith('ps1_cap'))
+cap_node.rotation_mode = 'QUATERNION'
+cap_node.rotation_quaternion = (1, 0, 0, 0)
+bpy.context.view_layer.update()
+print('LID closed at its hinge pivot')
 
 # Decimation per part: small-on-screen pieces hardest.
 RATIO = [
-    ('ps_controller', 0.12), ('connector', 0.3), ('Ps1_body_details', 0.2), ('Ps1_body', 0.2), ('ps1_cap', 0.3),
+    ('ps_controller', 0.12), ('connector', 0.3), ('Ps1_body_details', 0.35), ('Ps1_body', 0.35), ('ps1_cap', 0.6),
     ('ps_cable', 0.15), ('main_body', 0.18), ('front_panel', 0.3),
 ]
 for o in meshes:
