@@ -15,10 +15,13 @@ STAND.top = STAND.legs + STAND.body; // 390: the TV stands here
 const GAP_UNDER_SHELF = 90;
 // Your table (assets/table.glb), scaled to this width; without it, the walnut stand above is built.
 const TABLE_WIDTH = 900;
+// The table model is a 2:1 game asset; it's stretched to this depth so the monitor (48 cm deep) and a
+// little room in front of it fit on it.
+const TABLE_DEPTH = 640;
 
 // The TV, scaled to this width. Its real size, and where its screen is, are read off the model when
 // it loads (see tvSpec); these are just the starting guesses.
-const TV_WIDTH = 400;
+const TV_WIDTH = 348; // the Sony PVM-1341's real width
 const tvSpec = { w: 400, h: 386, d: 330, screenX: 0, screenY: 225, screenW: 383, screenH: 291, screenFront: 0 };
 
 // The TV's own screen becomes the CRT: it gets UVs running 0..1 across and up the glass as seen from
@@ -279,6 +282,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let screenMesh = null;
   let ps2 = null;
   let pad = null;
+  let pad2 = null;
   let tray = null;
   let table = null;
   const pickables = [];
@@ -322,7 +326,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   if (assets.ps2) {
     later(() => (mark('ps2Start'), loadModel(assets.ps2, shadows)).then((root) => {
       mark('ps2');
-      ps2 = fit(root, 301);
+      root.rotation.y = Math.PI; // the PlayStation faces -z, like the monitor
+      ps2 = fit(root, 258);
       group.add(ps2);
       arrange();
       reveal(ps2);
@@ -331,8 +336,11 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   if (assets.pad) {
     later(() => (mark('padStart'), loadModel(assets.pad, shadows)).then((root) => {
       mark('pad');
-      pad = fit(root, 158);
-      group.add(pad);
+      root.rotation.y = Math.PI;
+      pad = fit(root, 129);
+      // The second controller is the same model, lying on the cloth.
+      pad2 = pad.clone(true);
+      group.add(pad, pad2);
       arrange();
       reveal(pad);
     }));
@@ -352,8 +360,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       table = fit(root, TABLE_WIDTH);
       const s = table.userData.size;
       lay.top = s.y;
-      lay.depth = s.z;
-      table.position.set(0, 0, lay.back + s.z / 2);
+      table.scale.z = TABLE_DEPTH / s.z;
+      lay.depth = TABLE_DEPTH;
+      table.position.set(0, 0, lay.back + TABLE_DEPTH / 2);
       group.add(table);
       arrange();
       if (placed) place(...placed);
@@ -414,11 +423,18 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
         pad.position.set(ps2 ? ps2.position.x - 28 : lay.halfW - 118, ps2Top, ps2 ? ps2.position.z + 22 : front - 72);
         pad.rotation.set(0.02, 0.62, -0.025);
       }
+      if (pad2) {
+        // The other one lies on the cloth in the gap between the monitor and the console.
+        pad2.position.set(70, T, front - 120);
+        pad2.rotation.set(0, -0.45, 0);
+        const ps = pad2.userData.size;
+        contact(pad2.position.x, T + 0.35, pad2.position.z, ps.x + 20, ps.z + 20, 0.55);
+      }
     }
-    // The ashtray, in the gap between the TV and the PS2, a little forward on the cloth.
+    // The ashtray, on the cloth in front of the monitor.
     if (tray && furniture === 'table') {
       const s = tray.userData.size;
-      tray.position.set(72, T, front - 62);
+      tray.position.set(-150, T, front - 72);
       tray.rotation.y = 0.55;
       contact(tray.position.x, T + 0.35, tray.position.z, s.x + 24, s.z + 24, 0.6);
     }
@@ -482,7 +498,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let board = null;
   if (assets.board && furniture === 'table' && lyricsFor && getProgress) {
     later(() => {
-      board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, lyricsFor, getProgress, onReady: () => (arrange(), reveal(board.group)) });
+      board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, lyricsFor, getProgress, onReady: () => (arrange(), placed && place(...placed), reveal(board.group)) });
       group.add(board.group);
       if (screen.info) board.setTrack(screen.info);
     });
@@ -707,7 +723,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let placed = null;
   function place(shelfBottom, wallZ) {
     placed = [shelfBottom, wallZ];
-    const standTop = shelfBottom - GAP_UNDER_SHELF - tvSpec.h;
+    // Whichever reaches higher, the TV or the whiteboard behind it, keeps clear of the shelf above.
+    const boardTop = board ? 40 + board.size.y : 0;
+    const standTop = shelfBottom - Math.max(GAP_UNDER_SHELF + tvSpec.h, boardTop + 45);
     state.targetY = standTop - lay.top;
     state.floorY = state.targetY;
     state.tvCenterY = state.targetY + lay.top + tvSpec.screenY;

@@ -65,7 +65,6 @@ spicetify apply
   GPU process and disable WebGL. Start Spotify with `--disable-accelerated-video-decode` (on Arch,
   put it in `~/.config/spotify-flags.conf`).
 - **Slow:** pick Quality: Low in the header.
-- **No TV on the table:** the public build has no TV model yet (see [Models](#the-tv-corners-models)).
 
 ## Build from source
 
@@ -108,13 +107,13 @@ npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress
 
 | File | Model | Author | Licence |
 | --- | --- | --- | --- |
-| `assets/crt_tv.glb` | [CRT TV](https://sketchfab.com/3d-models/crt-tv-9ba4baa106e64319a0b540cf0af5aa9e) | Timothy Ahene | Sketchfab Standard: use, don't redistribute the file |
-| `assets/playstation_2.glb` | [PlayStation 2](https://sketchfab.com/3d-models/playstation-2-8c992e9f5c86496ca7bd7dfe109d3cc2) | Smoggybeard | CC BY-NC-SA 4.0 |
-| `assets/ps2_controller.glb` | [PS2 Controller](https://sketchfab.com/3d-models/ps2-controller-9b0db71448a14907a6235c79bdce786a) | rhcreations | CC BY 4.0 |
-| `assets/whiteboard.glb` | [School whiteboard 90cm × 120cm](https://sketchfab.com/3d-models/school-whiteboard-90cm-x-120cm-280856e261974ed093d9d15892ef045e) | Pedro-Martins | CC BY 4.0 |
-| `assets/fonts/PermanentMarker-Regular.ttf` | [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) | Font Diner | Apache 2.0 (`assets/fonts/LICENSE.txt`) |
-| `assets/ashtray.glb` | [Ashtray with Cigarettes](https://sketchfab.com/3d-models/ashtray-with-cigarettes-6e9bfb5e4b1e42b791a51c40cb993306) | YJ_ | CC BY 4.0 |
-| `assets/table.glb` | [table_d from FPS Creator Classic](https://sketchfab.com/3d-models/table-d-from-fps-creator-classic-ef3b5348530448289083e82251233aaa) | Garbage Raccoon | CC BY 4.0 |
+| `pvm_monitor.glb`, `ps1_console.glb`, `ps1_pad.glb` | [Sony PVM-1341 &#124;&#124; Sony Playstation](https://sketchfab.com/3d-models/sony-pvm-1341-sony-playstation-5f80311f1a4646ef9673f20ee6dc6245) | dark_igorek | CC BY 4.0 |
+| `whiteboard.glb` | [School whiteboard 90cm × 120cm](https://sketchfab.com/3d-models/school-whiteboard-90cm-x-120cm-280856e261974ed093d9d15892ef045e) | Pedro-Martins | CC BY 4.0 |
+| `ashtray.glb` | [Ashtray with Cigarettes](https://sketchfab.com/3d-models/ashtray-with-cigarettes-6e9bfb5e4b1e42b791a51c40cb993306) | YJ_ | CC BY 4.0 |
+| `table.glb` | [table_d from FPS Creator Classic](https://sketchfab.com/3d-models/table-d-from-fps-creator-classic-ef3b5348530448289083e82251233aaa) | Garbage Raccoon | CC BY 4.0 |
+| `fonts/PermanentMarker-Regular.ttf` | [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) | Font Diner | Apache 2.0 |
+
+The Sony set was prepared with Blender: `blender -b --python tools/optimize.py -- original.glb pvm_dec.glb`, then `blender -b --python tools/split-pvm.py -- pvm_dec.glb out/`, then `gltf-transform optimize` (meshopt, 512 px WebP) on each piece.
 
 Because the build embeds them, don't publish `dist/` from a build that includes them.
 
