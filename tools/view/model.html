@@ -5,22 +5,24 @@
 // Three-quarter view of a model with labelled axes (red +x, green +y, blue +z), for orientation.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 const q = new URLSearchParams(location.search);
 const r = new THREE.WebGLRenderer({ antialias: true });
-r.setSize(640, 480);
+r.setSize(960, 600);
 document.body.appendChild(r.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x888888);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 3));
-const g = await new GLTFLoader().loadAsync('/assets/' + q.get('m') + '.glb');
+const g = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/' + (q.get('dir') || 'assets') + '/' + q.get('m') + '.glb');
 scene.add(g.scene);
 g.scene.updateMatrixWorld(true);
 const box = new THREE.Box3().setFromObject(g.scene);
 const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
 const k = Math.max(s.x, s.y, s.z);
 scene.add(new THREE.AxesHelper(k * 0.9).translateX(box.min.x).translateY(box.min.y).translateZ(box.min.z));
-const cam = new THREE.PerspectiveCamera(35, 640 / 480, k * 0.01, k * 20);
-cam.position.copy(c).add(new THREE.Vector3(1.1, 0.8, 1.6).multiplyScalar(k * 1.3));
+const cam = new THREE.PerspectiveCamera(35, 960 / 600, k * 0.01, k * 20);
+const dir = (q.get('v') || '0.5,0.45,1.6').split(',').map(Number);
+cam.position.copy(c).add(new THREE.Vector3(...dir).normalize().multiplyScalar(k * 1.6));
 cam.lookAt(c);
 r.render(scene, cam);
 document.title = JSON.stringify({ size: s.toArray().map((v) => +v.toFixed(4)), min: box.min.toArray().map((v) => +v.toFixed(4)) });
