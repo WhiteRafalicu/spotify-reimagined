@@ -16,34 +16,29 @@ const GAP_UNDER_SHELF = 90;
 // Your table (assets/table.glb), scaled to this width; without it, the walnut stand above is built.
 const TABLE_WIDTH = 900;
 
-// The TV's screen glass, measured off the model (glTF units, its front faces +x): a 290 × 216 mm
-// 4:3 tube centred at y = 0.1856, bulging from x = 0.184 at the corners to 0.205 in the middle.
-const TUBE = { y: 0.1856, hw: 0.145, hh: 0.108, x0: 0.184, bulgeW: 0.0131, bulgeH: 0.008 };
-// The model's own glass is cut out (so our tube shows through the bezel instead of fighting it for
-// depth): any TV fragment inside the tube's outline, in the TV's own metre space, is discarded.
-// toTv maps world space back into that space and is refreshed as the stand moves.
-const toTv = { value: new THREE.Matrix4() };
-function cutGlass(root) {
-  const cut = `
-    vec3 tvP = (uToTv * vec4(vCutWorld, 1.0)).xyz;
-    if (tvP.x > ${(TUBE.x0 - 0.008).toFixed(4)} && abs(tvP.z) < ${(TUBE.hw * 0.996).toFixed(4)} && abs(tvP.y - ${TUBE.y.toFixed(4)}) < ${(TUBE.hh * 0.996).toFixed(4)}) discard;`;
+// The TV, scaled to this width. Its real size, and where its screen is, are read off the model when
+// it loads (see tvSpec); these are just the starting guesses.
+const TV_WIDTH = 400;
+const tvSpec = { w: 400, h: 386, d: 330, screenX: 0, screenY: 225, screenW: 383, screenH: 291, screenFront: 0 };
+
+// The TV's own screen becomes the CRT: it gets UVs running 0..1 across and up the glass as seen from
+// the front (the model faces -z), which is what the CRT shader expects.
+function screenUv(root) {
+  root.updateMatrixWorld(true);
   root.traverse((o) => {
-    if (!o.isMesh) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) {
-      m.onBeforeCompile = (shader) => {
-        shader.uniforms.uToTv = toTv;
-        shader.vertexShader = shader.vertexShader
-          .replace('void main() {', 'varying vec3 vCutWorld;\nvoid main() {')
-          .replace('#include <project_vertex>', '#include <project_vertex>\n  vCutWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        shader.fragmentShader = shader.fragmentShader.replace(
-          'void main() {',
-          'uniform mat4 uToTv;\nvarying vec3 vCutWorld;\nvoid main() {' + cut,
-        );
-      };
-      m.customProgramCacheKey = () => 'cd-shelf-cut-glass';
-      m.needsUpdate = true;
+    if (!o.isMesh || !/screen/i.test(o.material?.name || '')) return;
+    const pos = o.geometry.attributes.position;
+    const v = new THREE.Vector3();
+    const box = new THREE.Box3();
+    for (let i = 0; i < pos.count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld));
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      uv[i * 2] = (box.max.x - v.x) / (box.max.x - box.min.x); // viewer's left to right (facing -z)
+      uv[i * 2 + 1] = (v.y - box.min.y) / (box.max.y - box.min.y);
     }
+    o.geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    o.userData.isScreen = true;
   });
 }
 
@@ -272,22 +267,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       fragmentShader: CRT_FRAG,
     }),
   );
-  const tubeGeo = own(new THREE.PlaneGeometry(1, 1, 32, 24));
-  {
-    const pos = tubeGeo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const u = pos.getX(i) * 2; // -1..1 across (viewer's left to right)
-      const v = pos.getY(i) * 2; // -1..1 up
-      const x = TUBE.x0 + TUBE.bulgeW * (1 - u * u) + TUBE.bulgeH * (1 - v * v) - 0.0015;
-      // Viewed from +x, the viewer's right is -z.
-      pos.setXYZ(i, x, TUBE.y + v * TUBE.hh * 1.01, -u * TUBE.hw * 1.01);
-    }
-    // Mapped this way (plane x to -z, plane y to y) the plane's own winding already faces +x.
-    tubeGeo.computeVertexNormals();
-  }
-  const tube = new THREE.Mesh(tubeGeo, crt);
   RectAreaLightUniformsLib.init();
-  const glow = new THREE.RectAreaLight(0x8899ff, 0, 290, 216);
+  const glow = new THREE.RectAreaLight(0x8899ff, 0, tvSpec.screenW, tvSpec.screenH);
   const glowColor = new THREE.Color(0.4, 0.45, 0.6);
 
   // A warm bias light behind the set, washing the wall.
@@ -295,31 +276,46 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   group.add(bias);
 
   let tv = null;
-  let tvRoot = null;
+  let screenMesh = null;
   let ps2 = null;
   let pad = null;
   let tray = null;
   let table = null;
   const pickables = [];
   if (assets.tv) {
-    later(() => (mark('tvStart'), loadModel(assets.tv, (root) => (cutGlass(root), shadows(root)))).then((root) => {
+    later(() => (mark('tvStart'), loadModel(assets.tv, (root) => (screenUv(root), shadows(root)))).then((root) => {
       mark('tv');
-      const g = { scene: root };
-      tvRoot = g.scene;
-      g.scene.add(tube);
-      tube.castShadow = false;
-      // Model is in metres with its screen facing +x; turn it to face the room (+z) and scale to mm.
-      g.scene.rotation.y = -Math.PI / 2;
-      g.scene.scale.setScalar(1000);
-      tv = new THREE.Group();
-      tv.add(g.scene);
+      // The model faces -z: turn it to face the room, then scale and stand it (fit).
+      root.rotation.y = Math.PI;
+      tv = fit(root, TV_WIDTH);
+      tv.updateMatrixWorld(true);
+      const size = tv.userData.size;
+      Object.assign(tvSpec, { w: size.x, h: size.y, d: size.z });
+      tv.traverse((o) => {
+        if (o.isMesh && o.userData.isScreen) screenMesh = o;
+      });
+      if (screenMesh) {
+        screenMesh.material = crt;
+        screenMesh.castShadow = false;
+        const sb = new THREE.Box3().setFromObject(screenMesh);
+        Object.assign(tvSpec, {
+          screenX: (sb.min.x + sb.max.x) / 2,
+          screenY: (sb.min.y + sb.max.y) / 2,
+          screenW: sb.max.x - sb.min.x,
+          screenH: sb.max.y - sb.min.y,
+          screenFront: sb.max.z,
+        });
+      }
       // The tube's light rides with the TV: just in front of the glass, shining out (-z of the light).
-      glow.position.set(0, TUBE.y * 1000, 215);
+      glow.width = tvSpec.screenW;
+      glow.height = tvSpec.screenH;
+      glow.position.set(tvSpec.screenX, tvSpec.screenY, tvSpec.screenFront + 4);
       glow.rotation.set(0, Math.PI, 0);
       tv.add(glow);
       group.add(tv);
-      pickables.push(...collect(g.scene));
+      pickables.push(...collect(tv));
       arrange();
+      if (placed) place(...placed);
       reveal(tv, glow);
     }));
   }
@@ -369,18 +365,18 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   // belong for the furniture in use. Runs again as each model arrives.
   function arrange() {
     const T = lay.top;
-    const tvZ = lay.back + 20 + 157;
+    const tvZ = lay.back + 20 + tvSpec.d / 2;
     // On the table the TV sits a little left of centre, leaving room for the PS2 beside it.
-    const tvX = furniture === 'table' ? -lay.halfW + 197 + 70 : 0;
+    const tvX = furniture === 'table' ? -lay.halfW + tvSpec.w / 2 + 70 : 0;
     const front = lay.back + lay.depth;
     nContacts = 0;
     if (tv) {
       // Not quite square to the room: turned a touch, as if nudged when it was last plugged in.
       const turn = furniture === 'table' ? 0.1 : 0;
       tv.position.set(tvX - (turn ? 6 : 0), T, tvZ + (turn ? 8 : 0));
-      bias.position.set(tvX, T + 300, 60);
+      bias.position.set(tvX, T + tvSpec.h * 0.9, 60);
       tv.rotation.y = turn;
-      contact(tvX, T + 0.3, tvZ + 27, 410, 370, 0.6);
+      contact(tvX, T + 0.3, tvZ, tvSpec.w + 15, tvSpec.d + 30, 0.6);
     }
     if (furniture === 'stand') {
       for (const [lx, lz] of [
@@ -642,10 +638,6 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     bias.intensity = inView && tv ? 2.2 : 0;
     if (!inView) return moving;
     board?.update(time, inView, screen.info?.duration);
-    if (tvRoot) {
-      tvRoot.updateWorldMatrix(true, false);
-      toTv.value.copy(tvRoot.matrixWorld).invert();
-    }
 
     // Mirror Spotify's Canvas when it has one for this track; otherwise show our own picture.
     if (time - mirrorAt > 0.5) {
@@ -715,10 +707,10 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let placed = null;
   function place(shelfBottom, wallZ) {
     placed = [shelfBottom, wallZ];
-    const standTop = shelfBottom - GAP_UNDER_SHELF - 334;
+    const standTop = shelfBottom - GAP_UNDER_SHELF - tvSpec.h;
     state.targetY = standTop - lay.top;
     state.floorY = state.targetY;
-    state.tvCenterY = state.targetY + lay.top + TUBE.y * 1000;
+    state.tvCenterY = state.targetY + lay.top + tvSpec.screenY;
     state.wallZ = wallZ;
     group.position.z = wallZ;
   }
@@ -729,10 +721,13 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     update,
     // What the close-up has to fit across: the TV and whatever stands beside it, at the TV's front.
     get frame() {
-      const tvX = furniture === 'table' ? -lay.halfW + 197 + 70 : 0;
-      const left = tvX - 197 - 40;
-      const right = furniture === 'table' ? Math.max(lay.halfW + 10, board ? BOARD_X + 240 + 25 : 0) : tvX + 197 + 40;
-      return { x: (left + right) / 2, halfW: (right - left) / 2, z: state.wallZ + lay.back + 20 + 157 + 211 };
+      const tvX = furniture === 'table' ? -lay.halfW + tvSpec.w / 2 + 70 : 0;
+      const left = tvX - tvSpec.w / 2 - 40;
+      const right = furniture === 'table' ? Math.max(lay.halfW + 10, board ? BOARD_X + 240 + 25 : 0) : tvX + tvSpec.w / 2 + 40;
+      return { x: (left + right) / 2, halfW: (right - left) / 2, z: state.wallZ + lay.back + 20 + tvSpec.d };
+    },
+    get tvHeight() {
+      return tvSpec.h;
     },
     get standTopY() {
       return state.targetY + lay.top;
@@ -760,7 +755,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     },
     // True when the ray hits the TV (clicking it plays or pauses).
     hitsTv(raycaster) {
-      return pickables.length > 0 && raycaster.intersectObjects([...pickables, tube], false).length > 0;
+      return pickables.length > 0 && raycaster.intersectObjects(pickables, false).length > 0;
     },
     dispose() {
       mirror.tex?.dispose();

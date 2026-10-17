@@ -86,7 +86,7 @@ npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress
 
 | File | Model | Author | Licence |
 | --- | --- | --- | --- |
-| `assets/crt_tv.glb` | [CRT TV](https://sketchfab.com/3d-models/crt-tv-7e19d474af4449e69c03dc661e7967dc) | Keon1x | Sketchfab Standard: use, don't redistribute the file |
+| `assets/crt_tv.glb` | [CRT TV](https://sketchfab.com/3d-models/crt-tv-9ba4baa106e64319a0b540cf0af5aa9e) | Timothy Ahene | Sketchfab Standard: use, don't redistribute the file |
 | `assets/playstation_2.glb` | [PlayStation 2](https://sketchfab.com/3d-models/playstation-2-8c992e9f5c86496ca7bd7dfe109d3cc2) | Smoggybeard | CC BY-NC-SA 4.0 |
 | `assets/ps2_controller.glb` | [PS2 Controller](https://sketchfab.com/3d-models/ps2-controller-9b0db71448a14907a6235c79bdce786a) | rhcreations | CC BY 4.0 |
 | `assets/whiteboard.glb` | [School whiteboard 90cm × 120cm](https://sketchfab.com/3d-models/school-whiteboard-90cm-x-120cm-280856e261974ed093d9d15892ef045e) | Pedro-Martins | CC BY 4.0 |

@@ -1562,7 +1562,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, canvasFor
     const visHalf = (camera.position.z - D / 2) * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) + 20;
     const cornerInView = !!corner && corner.standTopY + 410 > lookY - visHalf && corner.floorY < lookY + visHalf;
     // Only the TV animates on its own (the board changes once per lyric line, which wakes it anyway).
-    cornerAlive = cornerInView && corner.alive && corner.standTopY + 300 > lookY - visHalf;
+    cornerAlive = cornerInView && corner.alive && corner.standTopY + corner.tvHeight * 0.9 > lookY - visHalf;
     const cornerBusy = corner?.update(dt, t, cornerInView);
     if (cornerInView && corner && dbg.cornerSeenAt === undefined) dbg.cornerSeenAt = Math.round(performance.now() - dbg.born);
     if (cornerBusy) shadowDirty = true;
