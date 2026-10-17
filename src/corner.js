@@ -15,9 +15,9 @@ STAND.top = STAND.legs + STAND.body; // 390: the TV stands here
 const GAP_UNDER_SHELF = 90;
 // Your table (assets/table.glb), scaled to this width; without it, the walnut stand above is built.
 const TABLE_WIDTH = 900;
-// The table model is a 2:1 game asset; it's stretched to this depth so the monitor (48 cm deep) and a
-// little room in front of it fit on it.
-const TABLE_DEPTH = 640;
+// The table model is a 2:1 game asset; it's stretched to this depth so the whole Sony set (monitor,
+// console, controllers and cables: about 84 cm front to back) stands on it.
+const TABLE_DEPTH = 880;
 
 // The TV, scaled to this width. Its real size, and where its screen is, are read off the model when
 // it loads (see tvSpec); these are just the starting guesses.
@@ -73,11 +73,11 @@ function litTable(root) {
 }
 
 // Scales a loaded model so its largest horizontal extent is `width` mm, rests it on y = 0 and centres it.
-function fit(root, width) {
+function fit(root, width, scale) {
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   const size = box.getSize(new THREE.Vector3());
-  const k = width / Math.max(size.x, size.z);
+  const k = scale ?? width / Math.max(size.x, size.z);
   const holder = new THREE.Group();
   root.scale.multiplyScalar(k);
   root.position.set(-((box.min.x + box.max.x) / 2) * k, -box.min.y * k, -((box.min.z + box.max.z) / 2) * k);
@@ -280,6 +280,10 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
 
   let tv = null;
   let screenMesh = null;
+  let tvSet = false;
+  // The TV sits a little left of centre on the table (room for the PS2 beside it); a whole set is
+  // centred.
+  const tvCenterX = () => (furniture !== 'table' || tvSet ? 0 : -lay.halfW + tvSpec.w / 2 + 70);
   let ps2 = null;
   let pad = null;
   let pad2 = null;
@@ -291,7 +295,12 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       mark('tv');
       // The model faces -z: turn it to face the room, then scale and stand it (fit).
       root.rotation.y = Math.PI;
-      tv = fit(root, TV_WIDTH);
+      // A whole set (monitor, console, controllers: much wider than tall) stands at its real size;
+      // a lone TV is scaled to TV_WIDTH.
+      root.updateMatrixWorld(true);
+      const raw = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+      tvSet = raw.x > raw.y * 1.6;
+      tv = tvSet ? fit(root, 0, 1000) : fit(root, TV_WIDTH);
       tv.updateMatrixWorld(true);
       const size = tv.userData.size;
       Object.assign(tvSpec, { w: size.x, h: size.y, d: size.z });
@@ -376,16 +385,18 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     const T = lay.top;
     const tvZ = lay.back + 20 + tvSpec.d / 2;
     // On the table the TV sits a little left of centre, leaving room for the PS2 beside it.
-    const tvX = furniture === 'table' ? -lay.halfW + tvSpec.w / 2 + 70 : 0;
+    const tvX = tvCenterX();
     const front = lay.back + lay.depth;
     nContacts = 0;
     if (tv) {
       // Not quite square to the room: turned a touch, as if nudged when it was last plugged in.
-      const turn = furniture === 'table' ? 0.1 : 0;
+      const turn = furniture === 'table' ? (tvSet ? 0.04 : 0.1) : 0;
       tv.position.set(tvX - (turn ? 6 : 0), T, tvZ + (turn ? 8 : 0));
       bias.position.set(tvX, T + tvSpec.h * 0.9, 60);
       tv.rotation.y = turn;
-      contact(tvX, T + 0.3, tvZ, tvSpec.w + 15, tvSpec.d + 30, 0.6);
+      // Under the monitor (a whole set's console and controllers get their own below).
+      if (tvSet) contact(tvX + tvSpec.screenX, T + 0.3, tvZ - tvSpec.d / 2 + 250, 380, 500, 0.6);
+      else contact(tvX, T + 0.3, tvZ, tvSpec.w + 15, tvSpec.d + 30, 0.6);
     }
     if (furniture === 'stand') {
       for (const [lx, lz] of [
@@ -434,12 +445,15 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     // The ashtray, on the cloth in front of the monitor.
     if (tray && furniture === 'table') {
       const s = tray.userData.size;
-      tray.position.set(-150, T, front - 72);
+      if (tvSet) tray.position.set(tvX + tvSpec.screenX - 40, T, front - 150);
+      else tray.position.set(-150, T, front - 72);
       tray.rotation.y = 0.55;
       contact(tray.position.x, T + 0.35, tray.position.z, s.x + 24, s.z + 24, 0.6);
     }
     stack.visible = furniture === 'stand';
-    if (board) board.group.position.set(BOARD_X, T + 40, 3);
+    // With a whole set, the board hangs just right of the monitor (its centre is boardX).
+    boardX = tvSet ? tvX + tvSpec.screenX + tvSpec.screenW / 2 + 60 + 240 : BOARD_X;
+    if (board) board.group.position.set(boardX, T + 40, 3);
     contacts.count = nContacts;
     contacts.instanceMatrix.needsUpdate = true;
     if (contacts.instanceColor) contacts.instanceColor.needsUpdate = true;
@@ -504,6 +518,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     });
   }
   const BOARD_X = 40 + 240; // its left edge clears the TV; it hangs just under the shelf
+  let boardX = BOARD_X;
 
   // ---- What's on: Canvas video when the track has one, else the album art panning slowly. ----
   const screen = { kind: 'off', tex: null, video: null, aspect: 1, staticUntil: 0, osdUntil: 0, power: 0, channel: 3, track: null, paused: false, art: null };
@@ -739,9 +754,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     update,
     // What the close-up has to fit across: the TV and whatever stands beside it, at the TV's front.
     get frame() {
-      const tvX = furniture === 'table' ? -lay.halfW + tvSpec.w / 2 + 70 : 0;
+      const tvX = tvCenterX();
       const left = tvX - tvSpec.w / 2 - 40;
-      const right = furniture === 'table' ? Math.max(lay.halfW + 10, board ? BOARD_X + 240 + 25 : 0) : tvX + tvSpec.w / 2 + 40;
+      const right = furniture === 'table' ? Math.max(lay.halfW + 10, board ? boardX + 240 + 25 : 0) : tvX + tvSpec.w / 2 + 40;
       return { x: (left + right) / 2, halfW: (right - left) / 2, z: state.wallZ + lay.back + 20 + tvSpec.d };
     },
     get tvHeight() {
