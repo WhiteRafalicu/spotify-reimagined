@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { CASE, HALF, HINGE, lidGeometry, trayGeometry, withDetail } from './caseGeometry';
 import { createCorner } from './corner';
+import { loadCover as fetchCover } from './cover';
 import { COPY_FRAG, OUTPUT_FRAG, ROD_FRAG, ROD_VERT, ROOM_BAKE_FRAG, SCREEN_VERT, SHEET_FRAG, SHEET_VERT } from './shaders';
 
 // Millimetres. Every case is the cd-case jewel case (146 square, 10.2 thick), stood on its edge
@@ -65,23 +66,13 @@ export function autoTier(renderer) {
   return 'high';
 }
 
-function loadImage(url) {
-  if (url.startsWith('data:')) {
-    const img = new Image();
-    img.src = url;
-    return img.decode().then(() => img);
-  }
-  return fetch(url)
-    .then((r) => {
-      if (!r.ok) throw new Error(`cover ${r.status}`);
-      return r.blob();
-    })
-    .then((b) => {
-      const img = new Image();
-      img.src = URL.createObjectURL(b);
-      return img.decode().then(() => img);
-    });
+function decode(blob) {
+  const img = new Image();
+  img.src = URL.createObjectURL(blob);
+  return img.decode().then(() => img);
 }
+
+const COVER_RETRY_MS = 20000;
 
 // A small queue, so a hundred covers don't all hit the network at once.
 function limiter(n) {
@@ -1202,23 +1193,27 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
 
   // Covers, decoded once and kept for a while so rows scrolling back in don't refetch them; and
   // the finished layer pixels (spine + cover) for the cases seen most recently.
-  const imgCache = new Map(); // thumb url -> Promise<HTMLImageElement>
+  const imgCache = new Map(); // thumb url -> Promise<{ img: HTMLImageElement, fallback }>
   const layerCache = new Map(); // uri -> { spine: Uint8ClampedArray, cover: Uint8ClampedArray }
   const touch = (map, key, val, limit) => {
     map.delete(key);
     map.set(key, val);
     while (map.size > limit) map.delete(map.keys().next().value);
   };
+  // A blank stand-in (the real cover wouldn't load) is not kept: the next try fetches again.
   function coverImage(item) {
-    let p = imgCache.get(item.thumb);
+    const key = item.thumb || `blank:${item.uri}`;
+    let p = imgCache.get(key);
     if (!p) {
-      p = loadCover(() => loadImage(item.thumb)).then((img) => {
-        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-        return img;
+      p = loadCover(() => fetchCover([item.thumb, item.art], item.name)).then(async ({ blob, fallback }) => {
+        const img = await decode(blob);
+        URL.revokeObjectURL(img.src);
+        if (fallback) imgCache.delete(key);
+        return { img, fallback };
       });
-      p.catch(() => imgCache.delete(item.thumb));
+      p.catch(() => imgCache.delete(key));
     }
-    touch(imgCache, item.thumb, p, Math.max(256, capacity * 2));
+    touch(imgCache, key, p, Math.max(256, capacity * 2));
     return p;
   }
   function pixels(src, w, h) {
@@ -1298,17 +1293,26 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       setLayer(slot, slot);
     }
     c.ready = coverImage(c.item)
-      .then((img) => {
+      .then(({ img, fallback }) => {
         if (disposed) return;
         drawSpine(spineScratch, c.item, img);
-        const entry = { spine: spineCtx.getImageData(0, 0, SPINE_PX[0], SPINE_PX[1]).data, cover: pixels(img, COVER_PX, COVER_PX), final: true };
+        const entry = { spine: spineCtx.getImageData(0, 0, SPINE_PX[0], SPINE_PX[1]).data, cover: pixels(img, COVER_PX, COVER_PX), final: !fallback };
         touch(layerCache, c.item.uri, entry, Math.max(128, capacity));
         if (c.slot !== slot || c.slotGen !== gen) return;
         putLayer(spineArr, slot, entry.spine);
         putLayer(coverArr, slot, entry.cover);
         wake();
+        // Still on screen a while later: try for the real cover again.
+        if (fallback && c.item.thumb) {
+          setTimeout(() => {
+            if (disposed || c.slot !== slot || c.slotGen !== gen) return;
+            c.layered = false;
+            layerQueue.push(c);
+            wake();
+          }, COVER_RETRY_MS);
+        }
       })
-      .catch(() => {});
+      .catch((e) => console.warn('[cd-shelf] cover', e));
   }
   const spineScratch = document.createElement('canvas');
   [spineScratch.width, spineScratch.height] = SPINE_PX;

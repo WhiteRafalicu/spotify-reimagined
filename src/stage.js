@@ -23,6 +23,7 @@ import {
   STREAK_FRAG,
 } from './shaders';
 import { bookletLayout, drawBooklet, scrollToTrack } from './booklet';
+import { blankCoverFor, loadCover } from './cover';
 
 const FOV = 28;
 const IOR = 1.59;
@@ -185,10 +186,16 @@ function sway(t, motion) {
   };
 }
 
-async function loadImage(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`cover ${res.status}`);
-  return createImageBitmap(await res.blob(), { imageOrientation: 'flipY' });
+// The cover, or a blank CD-R with the name on it when it won't load (or won't decode): the case
+// opens either way.
+async function loadArt(album) {
+  const flip = { imageOrientation: 'flipY' };
+  const { blob } = await loadCover([album.art, album.thumb], album.name, { within: 3500 });
+  try {
+    return await createImageBitmap(blob, flip);
+  } catch {
+    return createImageBitmap(await (await fetch(blankCoverFor(album.name))).blob(), flip);
+  }
 }
 
 function averageColor(bitmap) {
@@ -917,7 +924,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     probe(gap);
   };
 
-  loadImage(album.art)
+  loadArt(album)
     .then((bitmap) => {
       if (disposed) return;
       paper = averageColor(bitmap);

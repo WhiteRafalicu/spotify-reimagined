@@ -1,5 +1,7 @@
 // Reading the library and playing from it, through the APIs Spicetify exposes on the desktop client.
 
+import { blankCoverFor } from './cover';
+
 const toHttps = (url) => {
   if (!url) return null;
   if (url.startsWith('https://')) return url;
@@ -11,46 +13,6 @@ const toHttps = (url) => {
 // Album images arrive at 300 px. The case wants the 640 px print of the same image.
 const large = (url) => url && url.replace('ab67616d00001e02', 'ab67616d0000b273');
 
-// A blank CD-R for playlists without a cover: the name written on in marker.
-function blankCover(name) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 640;
-  const g = c.getContext('2d');
-  const hue = [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
-  const bg = g.createLinearGradient(0, 0, 640, 640);
-  bg.addColorStop(0, `hsl(${hue} 18% 86%)`);
-  bg.addColorStop(1, `hsl(${(hue + 40) % 360} 14% 74%)`);
-  g.fillStyle = bg;
-  g.fillRect(0, 0, 640, 640);
-  g.strokeStyle = 'rgba(0,0,0,0.12)';
-  g.lineWidth = 2;
-  for (let y = 120; y < 600; y += 56) {
-    g.beginPath();
-    g.moveTo(60, y);
-    g.lineTo(580, y);
-    g.stroke();
-  }
-  g.fillStyle = `hsl(${hue} 70% 28%)`;
-  g.font = '700 64px "Permanent Marker", "Comic Sans MS", "Segoe Print", cursive';
-  g.textAlign = 'center';
-  const words = name.split(/\s+/);
-  const lines = [];
-  let line = '';
-  for (const w of words) {
-    const next = line ? `${line} ${w}` : w;
-    if (g.measureText(next).width > 500 && line) {
-      lines.push(line);
-      line = w;
-    } else line = next;
-  }
-  lines.push(line);
-  g.save();
-  g.translate(320, 320 - (lines.length - 1) * 38);
-  g.rotate(-0.06);
-  lines.slice(0, 5).forEach((l, i) => g.fillText(l, 0, i * 76 + 20));
-  g.restore();
-  return c.toDataURL('image/jpeg', 0.9);
-}
 
 // Pages of 500; onPage() after each, so a big library starts filling the shelf right away.
 async function allContents(filter, onPage) {
@@ -83,12 +45,6 @@ export async function loadLibrary(onProgress) {
   return toItems(raw.albums, raw.playlists);
 }
 
-// Covers for coverless playlists, drawn once per name.
-const blanks = new Map();
-const blankFor = (name) => {
-  if (!blanks.has(name)) blanks.set(name, blankCover(name));
-  return blanks.get(name);
-};
 
 function toItems(albums, playlists) {
   const items = [];
@@ -109,7 +65,7 @@ function toItems(albums, playlists) {
   }
   for (const p of playlists) {
     if (p.type !== 'playlist') continue;
-    const img = toHttps(p.images?.[0]?.url) || blankFor(p.name);
+    const img = toHttps(p.images?.[0]?.url) || blankCoverFor(p.name);
     items.push({
       kind: 'playlist',
       uri: p.uri,
@@ -134,7 +90,7 @@ export function itemFromPlayer(uri) {
   if (uri.startsWith('spotify:playlist:') && d?.context?.uri === uri) {
     const art = meta.image_url ? toHttps(`spotify:image:${meta.image_url}`) : null;
     const name = meta.context_description || 'Playlist';
-    return { kind: 'playlist', uri, name, artist: meta.context_owner || '', thumb: art || blankCover(name), art: art || blankCover(name) };
+    return { kind: 'playlist', uri, name, artist: meta.context_owner || '', thumb: art || blankCoverFor(name), art: art || blankCoverFor(name) };
   }
   const album = t?.album;
   if (!album) return null;
