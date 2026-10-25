@@ -209,9 +209,13 @@ function averageColor(bitmap) {
   return [r / n, gr / n, b / n];
 }
 
-export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail }) {
+export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {} }) {
+  // glints: the star filter on bright highlights. sway: the case drifts gently and leans toward the
+  // pointer; without it the case holds still, so its thin glass edges don't shimmer.
+  const fx = { glints: true, sway: true, ...effects };
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const motion = reduced ? 0.35 : 1;
+  const swayAmount = () => (fx.sway ? (reduced ? 0.35 : 1) : 0);
+  let motion = swayAmount();
 
   const canvas = document.createElement('canvas');
   canvas.className = 'cds-canvas';
@@ -609,7 +613,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     st.spinRate += (want - st.spinRate) * (1 - Math.exp(-dt * SPIN_EASE * 3));
     st.spin += st.spinRate * dt;
 
-    const hover = pointer.over && !grab.active && st.phase !== 'arrive';
+    motion += (swayAmount() - motion) * (1 - Math.exp(-dt * 3));
+    const hover = fx.sway && pointer.over && !grab.active && st.phase !== 'arrive';
     const k = 1 - Math.exp(-dt * 4);
     lean.x += ((hover ? pointer.y * (st.open ? 0.08 : 0.22) : 0) - lean.x) * k;
     lean.y += ((hover ? -pointer.x * (st.open ? 0.12 : 0.35) : 0) - lean.y) * k;
@@ -748,16 +753,19 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     if (rect) picked.uRect.value.set(rect.x / w, rect.y / h, rect.x1 / w, rect.y1 / h);
     else picked.uRect.value.set(0, 0, 0, 0);
 
-    bright.material.uniforms.uTexel.value.set(1 / rtBright.width, 1 / rtBright.height);
-    renderer.setRenderTarget(rtBright);
-    renderer.render(bright.scene, screenCam);
-    streak.material.uniforms.uTex.value = rtBright.texture;
-    streak.material.uniforms.uStep.value.set(1.5 / rtBright.width, 0);
-    renderer.setRenderTarget(rtStarA);
-    renderer.render(streak.scene, screenCam);
-    streak.material.uniforms.uStep.value.set(0, 1.5 / rtBright.height);
-    renderer.setRenderTarget(rtStarB);
-    renderer.render(streak.scene, screenCam);
+    final.material.uniforms.uStars.value = fx.glints ? STARS : 0;
+    if (fx.glints) {
+      bright.material.uniforms.uTexel.value.set(1 / rtBright.width, 1 / rtBright.height);
+      renderer.setRenderTarget(rtBright);
+      renderer.render(bright.scene, screenCam);
+      streak.material.uniforms.uTex.value = rtBright.texture;
+      streak.material.uniforms.uStep.value.set(1.5 / rtBright.width, 0);
+      renderer.setRenderTarget(rtStarA);
+      renderer.render(streak.scene, screenCam);
+      streak.material.uniforms.uStep.value.set(0, 1.5 / rtBright.height);
+      renderer.setRenderTarget(rtStarB);
+      renderer.render(streak.scene, screenCam);
+    }
 
     renderer.setRenderTarget(null);
     renderer.render(final.scene, screenCam);
@@ -936,6 +944,9 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
   return {
     setOpen: (on) => toggleOpen(on),
+    setEffects(next) {
+      Object.assign(fx, next);
+    },
     leave,
     hitTest(clientX, clientY) {
       return targetAt(...toNdc({ clientX, clientY }));

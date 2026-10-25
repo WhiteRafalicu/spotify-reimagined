@@ -395,9 +395,12 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
+  // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
+  // Both move highlights across thin glass edges, which some people see as flicker.
+  const look = { sway: swayOn, cursorLight: cursorLightOn };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLost };
@@ -1583,10 +1586,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     t += dt;
     // Camera: scroll target plus a slow drift and a lean toward the pointer.
     cam.y += (cam.target - cam.y) * (1 - Math.exp(-dt * 6));
-    const px = pointer.over ? pointer.x : 0;
-    const py = pointer.over ? pointer.y : 0;
+    const lean = pointer.over && look.sway;
+    const px = lean ? pointer.x : 0;
+    const py = lean ? pointer.y : 0;
     cam.x += (px * 30 - cam.x) * (1 - Math.exp(-dt * 2.5));
-    const drift = reducedMotion ? 0 : Math.sin(t * 0.21) * 6;
+    const drift = reducedMotion || !look.sway ? 0 : Math.sin(t * 0.21) * 6;
     const f = cornerView(cam.y);
     const ease = f * f * (3 - 2 * f);
     if (Math.abs(f - dollyF) > 0.002) {
@@ -1608,7 +1612,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       const halfVis = (camZ - fr.z) * tanHalf;
       camDY = (corner.standTopY - 30 + halfVis * 0.62 - cornerMid()) * ease;
     } else camDY = 0;
-    camera.position.set(camX + cam.x + drift, cam.y + camDY + py * 14 + (reducedMotion ? 0 : Math.sin(t * 0.17) * 3), camZ);
+    camera.position.set(camX + cam.x + drift, cam.y + camDY + py * 14 + (reducedMotion || !look.sway ? 0 : Math.sin(t * 0.17) * 3), camZ);
     camera.lookAt(camX + cam.x * 0.3 + drift * 0.5, cam.y + camDY, 0);
     camera.updateMatrixWorld();
 
@@ -1638,7 +1642,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       else if (hit) at = _v.set(hit.x, hit.y, 120);
     }
     if (at) lamp.position.lerp(at, 1 - Math.exp(-dt * 8));
-    const glow = spot ? 1.7 : pointer.over ? (hovered ? 1.25 : 0.7) : 0;
+    const glow = spot ? 1.7 : !look.cursorLight ? 0 : pointer.over ? (hovered ? 1.25 : 0.7) : 0;
     lamp.intensity += (glow - lamp.intensity) * (1 - Math.exp(-dt * 4));
 
     // What the camera can see, top to bottom: rows outside it skip drawing and updating.
@@ -2037,6 +2041,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     renderer.info.reset();
     step(dt);
     adaptEnd(frameGap, frameThrottled);
+    if (dbg.trace && dbg.trace.length < 4000) dbg.trace.push({ t: Math.round(now), gap: Math.round(frameGap), scale, pr: +renderer.getPixelRatio().toFixed(3), lamp: +lamp.intensity.toFixed(3), lx: Math.round(lamp.position.x), ly: Math.round(lamp.position.y), hov: hovered ? hovered.index : -1, sh: dbg.shadows || 0 });
     if (dbg.firstFrame === undefined) dbg.firstFrame = Math.round(performance.now() - dbg.born);
     perf.cpu += performance.now() - t0;
     perf.frames++;
@@ -2062,6 +2067,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     perf: () => perfReport(),
     // 'auto' | 'high' | 'medium' | 'low'
     setQuality: (mode) => applyQuality(mode),
+    setEffects(next) {
+      Object.assign(look, next);
+      wake();
+    },
     setDust(on) {
       dustPref = on;
       dust.visible = dustPref && q.dust && !reducedMotion;
@@ -2071,7 +2080,12 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     get quality() {
       return { mode: qualityMode, tier: tierName, scale, gpu: gpuName(renderer) };
     },
-    profile({ busy, timing, pixelRatio, baseDpr, budget: budgetMs } = {}) {
+    profile({ busy, timing, pixelRatio, baseDpr, budget: budgetMs, trace } = {}) {
+      if (trace !== undefined) {
+        const out = dbg.trace;
+        dbg.trace = trace ? [] : null;
+        if (!trace) return out;
+      }
       if (busy !== undefined) dbg.busy = busy;
       if (budgetMs !== undefined) dbg.budget = budgetMs;
       if (arguments[0]?.pictureLights !== undefined) deco.lights.forEach((l, k) => (l.on = k < arguments[0].pictureLights));
@@ -2089,7 +2103,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       }
       return { gpuMs: dbg.timer?.report(), ...perfReport(), pixelRatio: renderer.getPixelRatio(), triangles: renderer.info.render.triangles };
     },
-    debug: () => ({ firstFrameMs: dbg.firstFrame, cornerSeenAt: dbg.cornerSeenAt, busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
+    debug: () => ({ pulled: pulled ? pulled.index : null, hovered: hovered ? hovered.index : null, pointerOver: pointer.over, firstFrameMs: dbg.firstFrame, cornerSeenAt: dbg.cornerSeenAt, busy, idleMs: Math.round(performance.now() - activeAt), shadows: dbg.shadows || 0, pool: { capacity, used: capacity - freeSlots.length, queued: layerQueue.length, imgCache: imgCache.size, layerCache: layerCache.size }, screen: corner?.screen, perRow, rowCount, n: order.length, camY: cam.y, target: cam.target, top: topY(), bottom: bottomY(), view, cases: cases.size }),
     setItems,
     // The player's current track, for the TV.
     setNowPlaying(info) {

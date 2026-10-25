@@ -40,7 +40,7 @@ const SORTS = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
-function Stage({ item, now, onClose, onShown }) {
+function Stage({ item, now, effects, onClose, onShown }) {
   const box = useRef(null);
   const stage = useRef(null);
   const nowRef = useRef(now);
@@ -87,6 +87,7 @@ function Stage({ item, now, onClose, onShown }) {
         live3d.current = false;
         setFailed(true);
       },
+      effects,
     });
     // Never leave an invisible stage over the page: if the case can't be shown, go back to the shelf.
     const giveUp = setTimeout(() => {
@@ -95,6 +96,7 @@ function Stage({ item, now, onClose, onShown }) {
       onClose();
     }, 12000);
     stage.current = s;
+    window.__cdStage = s; // handy from DevTools
     retry(() => loadTracks(item))
       .then((tracks) => {
         album.tracks = tracks;
@@ -121,6 +123,10 @@ function Stage({ item, now, onClose, onShown }) {
       stage.current = null;
     };
   }, [item.uri]);
+
+  useEffect(() => {
+    stage.current?.setEffects(effects);
+  }, [effects.sway, effects.glints]);
 
   const live = now.context === item.uri;
   // Portalled to <body>: Spotify's view containers are transformed, which would pin a fixed
@@ -163,6 +169,9 @@ const TOGGLES = [
   ['discCover', 'setDisc', 'setDiscHint'],
   ['tvCorner', 'setCorner', 'setCornerHint'],
   ['dust', 'setDust', ''],
+  ['sway', 'setSway', 'setSwayHint'],
+  ['cursorLight', 'setCursorLight', ''],
+  ['glints', 'setGlints', ''],
 ];
 
 function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
@@ -352,6 +361,8 @@ function App() {
         assets,
         corner: settings.tvCorner,
         dust: settings.dust,
+        sway: settings.sway,
+        cursorLight: settings.cursorLight,
         theme: settings.theme,
         onQualityDrop: (to) => {
           setTier(to);
@@ -377,6 +388,9 @@ function App() {
   useEffect(() => {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
+  useEffect(() => {
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight });
+  }, [settings.sway, settings.cursorLight, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
@@ -538,7 +552,7 @@ function App() {
     <div className="cds-root">
       {host && Spicetify.ReactDOM.createPortal(world, host)}
       {onStage && (
-        <Stage key={onStage.uri} item={onStage} now={now} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
+        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
     </div>
   );
