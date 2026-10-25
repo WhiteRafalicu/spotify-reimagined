@@ -82,9 +82,6 @@
   background: #1ed760;
   color: #000;
 }
-select.cds-chip option {
-  background: #282828;
-}
 .cds-search {
   border: 0;
   border-radius: 999px;
@@ -310,4 +307,88 @@ select.cds-chip option {
 }
 .cds-world.is-birch .cds-empty {
   color: rgba(26, 23, 20, 0.7);
+}
+
+/* In-page choices (see Segmented and Menu in app.jsx). */
+.cds-toggle.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  cursor: default;
+}
+.cds-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.cds-seg-btn {
+  flex: 1;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 8px;
+  font: 600 12.5px/1.2 inherit;
+  font-family: inherit;
+  color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.cds-seg-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.cds-seg-btn.is-on {
+  color: #000;
+  background: #fff;
+}
+.cds-menu-box {
+  position: relative;
+}
+.cds-menu-btn::after {
+  content: '';
+  display: inline-block;
+  margin-left: 8px;
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  border-bottom: 0;
+  vertical-align: middle;
+}
+.cds-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 8px;
+  background: #282828;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.cds-menu-item {
+  appearance: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font: 500 13px/1.2 inherit;
+  font-family: inherit;
+  text-align: left;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.85);
+  background: transparent;
+  cursor: pointer;
+}
+.cds-menu-item:hover,
+.cds-menu-item:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+.cds-menu-item.is-on {
+  color: #1ed760;
 }

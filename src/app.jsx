@@ -174,6 +174,64 @@ const TOGGLES = [
   ['glints', 'setGlints', ''],
 ];
 
+// Choices are drawn in the page instead of native <select> popups: those are separate OS widgets,
+// and in Spotify they can close without taking the click (the choice seems to reset).
+function Segmented({ value, options, onChange, label }) {
+  return (
+    <div className="cds-seg" role="radiogroup" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={v === value} className={`cds-seg-btn${v === value ? ' is-on' : ''}`} onClick={() => onChange(v)}>
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Menu({ value, options, onChange, label, className = '' }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+    const key = (e) => e.key === 'Escape' && (e.stopPropagation(), setOpen(false));
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', key, true);
+    box.current?.querySelector('.is-on')?.focus();
+    return () => {
+      document.removeEventListener('pointerdown', away, true);
+      document.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+  const current = options.find(([v]) => v === value);
+  return (
+    <div className={`cds-menu-box ${className}`} ref={box}>
+      <button type="button" className="cds-chip cds-menu-btn" aria-haspopup="listbox" aria-expanded={open} aria-label={label} onClick={() => setOpen((o) => !o)}>
+        {current ? current[1] : value}
+      </button>
+      {open && (
+        <div className="cds-menu" role="listbox" aria-label={label}>
+          {options.map(([v, text]) => (
+            <button
+              key={v}
+              type="button"
+              role="option"
+              aria-selected={v === value}
+              className={`cds-menu-item${v === value ? ' is-on' : ''}`}
+              onClick={() => {
+                onChange(v);
+                setOpen(false);
+              }}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
   const set = (k, v) => setSettings({ [k]: v });
   return (
@@ -193,37 +251,40 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
           </span>
         </label>
       ))}
-      <label className="cds-toggle">
+      <div className="cds-toggle">
         <span>{t('language')}</span>
-        <select className="cds-chip" value={settings.lang} onChange={(e) => set('lang', e.target.value)}>
-          <option value="auto">{t('langAuto')}</option>
-          {Object.entries(LANGUAGE_NAMES).map(([code, name]) => (
-            <option key={code} value={code}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="cds-toggle">
+        <Menu label={t('language')} value={settings.lang} onChange={(v) => set('lang', v)} options={[['auto', t('langAuto')], ...Object.entries(LANGUAGE_NAMES)]} />
+      </div>
+      <div className="cds-toggle is-stacked">
         <span>{t('look')}</span>
-        <select className="cds-chip" value={settings.theme} onChange={(e) => set('theme', e.target.value)}>
-          <option value="walnut">{t('lookWalnut')}</option>
-          <option value="birch">{t('lookBirch')}</option>
-          <option value="minimal">{t('lookMinimal')}</option>
-        </select>
-      </label>
-      <label className="cds-toggle">
+        <Segmented
+          label={t('look')}
+          value={settings.theme}
+          onChange={(v) => set('theme', v)}
+          options={[
+            ['walnut', t('lookWalnut')],
+            ['birch', t('lookBirch')],
+            ['minimal', t('lookMinimal')],
+          ]}
+        />
+      </div>
+      <div className="cds-toggle is-stacked">
         <span>
           {t('quality')}
           <small>{t('qualityHint', { now: tier && quality === 'auto' ? t('qualityNow', { tier: t('q' + tier[0].toUpperCase() + tier.slice(1)) }) : '' })}</small>
         </span>
-        <select className="cds-chip" value={quality} onChange={(e) => setQuality(e.target.value)}>
-          <option value="auto">{t('qAuto')}</option>
-          <option value="high">{t('qHigh')}</option>
-          <option value="medium">{t('qMedium')}</option>
-          <option value="low">{t('qLow')}</option>
-        </select>
-      </label>
+        <Segmented
+          label={t('quality')}
+          value={quality}
+          onChange={setQuality}
+          options={[
+            ['auto', t('qAuto')],
+            ['high', t('qHigh')],
+            ['medium', t('qMedium')],
+            ['low', t('qLow')],
+          ]}
+        />
+      </div>
       <div className="cds-settings-foot">
         <button
           className="cds-chip"
@@ -503,12 +564,17 @@ function App() {
               {label}
             </button>
           ))}
-          <select className="cds-chip" value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="recent">{t('sortRecent')}</option>
-            <option value="played">{t('sortPlayed')}</option>
-            <option value="artist">{t('sortArtist')}</option>
-            <option value="name">{t('sortTitle')}</option>
-          </select>
+          <Menu
+            label={t('sort')}
+            value={sort}
+            onChange={setSort}
+            options={[
+              ['recent', t('sortRecent')],
+              ['played', t('sortPlayed')],
+              ['artist', t('sortArtist')],
+              ['name', t('sortTitle')],
+            ]}
+          />
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             {t('spotifyHome')}
           </button>
