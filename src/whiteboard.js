@@ -63,6 +63,40 @@ function wrap(g, text, width) {
   return lines;
 }
 
+// Karaoke without word timing (Spotify only times lines): each word gets a share of the line's
+// time by how many syllables it has (vowel groups; a character each for Chinese, Japanese and
+// Korean), sung at no more than SYLLABLE_MS a syllable so a line before a long break doesn't crawl.
+const SYLLABLE_MS = 380;
+const VOWELS = /[aeiouyàáâãäåæèéêëìíîïòóôõöøùúûüýÿāăąēĕėęěīĭįōŏőœūŭůűųаеёиоуыэюяіїєαεηιουω]+/giu;
+const CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]/gu;
+function syllables(word) {
+  const cjk = word.match(CJK)?.length || 0;
+  if (cjk) return cjk;
+  const v = word.match(VOWELS)?.length || 0;
+  return v || Math.max(1, Math.round(letters(word.trim()).length / 3));
+}
+// How much of `text` (as a share of its letters) has been sung `ms` into a line lasting `span`.
+export function karaokeShare(text, ms, span) {
+  const words = breakable(text);
+  const w = words.map((x) => (x.trim() ? syllables(x) : 0));
+  const total = w.reduce((a, b) => a + b, 0) || 1;
+  const sing = Math.max(300, Math.min(span * 0.92, total * SYLLABLE_MS));
+  let at = (Math.max(0, ms) / sing) * total; // syllables sung so far
+  const all = letters(text).length || 1;
+  let done = 0;
+  for (let i = 0; i < words.length; i++) {
+    const n = letters(words[i]).length;
+    if (at >= w[i]) {
+      done += n;
+      at -= w[i];
+    } else {
+      done += n * (w[i] ? at / w[i] : 0);
+      break;
+    }
+  }
+  return Math.min(1, done / all);
+}
+
 // Shrinks the font until the text fits in `maxLines` lines.
 function fitText(g, text, width, size, maxLines, min = 30, hand = handFor(text)) {
   for (let s = size; s >= min; s -= 4) {
@@ -251,6 +285,19 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
       g.fillStyle = INK.black;
       const top = 290 - ((fit.lines.length - 1) * fit.size) / 3;
       below = top + (fit.lines.length - 1) * fit.size * 1.12 + fit.size * 0.95;
+      // Karaoke: the whole line waits in light ink; what's been sung is written over it in black.
+      if (state.mode === 'karaoke' && ly.synced) {
+        g.save();
+        g.globalAlpha = 0.26;
+        fit.lines.forEach((l, k) => {
+          g.save();
+          g.translate(x(62), top + k * fit.size * 1.12);
+          g.rotate((rtl ? 1 : -1) * (0.012 - k * 0.006));
+          g.fillText(l, 0, 0);
+          g.restore();
+        });
+        g.restore();
+      }
       split.forEach((l, k) => {
         const part = l.slice(0, Math.max(0, left)).join('');
         left -= l.length;
@@ -292,7 +339,9 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
       at = lineAt(ly, ms, duration);
       const chars = letters(ly.lines[at.i]?.text || '').length || 1;
       const span = Math.max(250, Math.min((at.next - at.start) * WRITE_SHARE, chars * MS_PER_CHAR_MAX));
-      reveal = ly.synced && at.i >= 0 && state.mode === 'write' ? Math.min(1, Math.max(0, (ms - at.start) / span)) : 1;
+      if (!ly.synced || at.i < 0 || state.mode === 'line') reveal = 1;
+      else if (state.mode === 'karaoke') reveal = karaokeShare(ly.lines[at.i].text || '', ms - at.start, at.next - at.start);
+      else reveal = Math.min(1, Math.max(0, (ms - at.start) / span));
       // Redraw only when the picture changes: a new line, or another letter written out.
       key = `${state.track}|${at.i}|${Math.round(reveal * chars)}`;
     } else key = `${state.track}|${ly === undefined ? 'loading' : 'none'}`;
@@ -308,7 +357,8 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
     group,
     setTrack,
     preview,
-    // 'write': each line is written out as it's sung; 'line': it appears whole.
+    // 'write': each line is written out as it's sung; 'line': it appears whole; 'karaoke': whole, in
+    // light ink, and inked in word by word as it's sung.
     setMode(mode) {
       if (mode === state.mode) return;
       state.mode = mode;

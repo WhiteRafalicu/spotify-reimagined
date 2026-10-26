@@ -11,7 +11,7 @@ export const DEFAULTS = {
   glints: true, // star glints on bright highlights of the open case
   wall: '', // '' = the look's own wall colour, or a colour from WALLS
   glass: 'classic', // clear | classic | smoky | blue: the cases' plastic (see GLASS)
-  lyrics: 'write', // write | line: the whiteboard writes each line out, or shows it whole
+  lyrics: 'write', // write | line | karaoke: written out, whole lines, or whole lines inked in word by word
   size: 'normal', // small | normal | large | huge: how big the cases are on screen
   speed: 'normal', // slow | normal | fast: cases leaving the shelf, opening, closing and going back
   theme: 'walnut', // walnut | birch | minimal

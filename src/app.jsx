@@ -302,7 +302,7 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose, onDiagnos
         {toggle('dust', 'setDust', '')}
 
         {heading('secLyrics')}
-        {choice('lyrics', 'lyricsMode', 'lyrics', ['write', 'line'])}
+        {choice('lyrics', 'lyricsMode', 'lyrics', ['write', 'line', 'karaoke'], t('lyricsHint'))}
 
         {heading('secGeneral')}
         <div className="cds-toggle">
