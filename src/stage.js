@@ -22,7 +22,7 @@ import {
   SHEET_VERT,
   STREAK_FRAG,
 } from './shaders';
-import { bookletLayout, drawBooklet, scrollToTrack, tabAt } from './booklet';
+import { bookletLayout, controlAt, drawBooklet, scrollToTrack, tabAt } from './booklet';
 import { blankCoverFor, loadCover } from './cover';
 
 const FOV = 28;
@@ -216,7 +216,7 @@ function averageColor(bitmap) {
   return [r / n, gr / n, b / n];
 }
 
-export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {}, lyricsFor, getProgress }) {
+export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {}, lyricsFor, getProgress, getControls, onControl }) {
   // speed: how fast the case arrives, opens, closes and leaves (1 = normal).
   // glints: the star filter on bright highlights. sway: the case drifts gently and leans toward the
   // pointer; without it the case holds still, so its thin glass edges don't shimmer.
@@ -397,7 +397,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   // scroll eases toward target; wheeledAt pauses follow-the-playing-track while someone is scrolling.
   // index: the booklet page (tracks, notes, lyrics); hoverTab: the tab under the pointer; lyrics: the
   // shown track's lyrics (undefined while loading), lyricsLine: the line being sung.
-  const page = { hover: -1, playing: null, scroll: 0, target: 0, wheeledAt: -1e9, index: 0, hoverTab: -1, lyrics: undefined, lyricsUri: null, lyricsTrack: '', lyricsLine: -1 };
+  const page = { hover: -1, playing: null, scroll: 0, target: 0, wheeledAt: -1e9, index: 0, hoverTab: -1, lyrics: undefined, lyricsUri: null, lyricsTrack: '', lyricsLine: -1, ctl: getControls?.() || {}, hoverControl: null };
   // The lyrics page shows the playing track when it's on this album, else the first track.
   function showLyrics() {
     const tracks = album.tracks || [];
@@ -629,6 +629,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       if (hit && hit.uv) {
         const px = hit.uv.x * 1024;
         const py = (1 - hit.uv.y) * 1024;
+        const control = controlAt(px, py);
+        if (control) return { kind: 'control', id: control };
         const tab = tabAt(px, py);
         if (tab >= 0) return { kind: 'tab', index: tab };
         const row = page.index === 0 ? bookletLayout(album, page.scroll).rowAt(px, py) : -1;
@@ -706,6 +708,11 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
           redrawPage();
         }
       }
+    }
+    const ctl = getControls?.();
+    if (ctl && (ctl.live !== page.ctl.live || ctl.playing !== page.ctl.playing || ctl.shuffle !== page.ctl.shuffle)) {
+      page.ctl = ctl;
+      redrawPage();
     }
     const playing = getPlaying();
     if (playing !== page.playing) {
@@ -896,8 +903,14 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
         page.hoverTab = tab;
         redrawPage();
       }
+      const control = hit?.kind === 'control' ? hit.id : null;
+      if (control !== page.hoverControl) {
+        page.hoverControl = control;
+        redrawPage();
+      }
       setHover(hit?.kind === 'track' ? hit.index : -1);
-      container.style.cursor = hit && hit.kind !== 'page' ? 'pointer' : '';
+      const dead = hit?.kind === 'page' || (control === 'skip' && !page.ctl.live);
+      container.style.cursor = hit && !dead ? 'pointer' : '';
     }
   };
   const onLeave = () => {
@@ -933,7 +946,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       if (!wasGrab) leave();
       return;
     }
-    if (hit.kind === 'track') onPick?.(hit.index);
+    if (hit.kind === 'control') onControl?.(hit.id);
+    else if (hit.kind === 'track') onPick?.(hit.index);
     else if (hit.kind === 'tab') setPage(hit.index);
     else if (hit.kind === 'page') return;
     else if (hit.kind === 'disc') onDisc?.();

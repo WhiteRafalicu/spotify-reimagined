@@ -42,7 +42,7 @@ spicetify apply
 | Click a track on the booklet | Play the album or playlist from that track (long lists scroll) |
 | **Tracks · Notes · Lyrics** at the foot of the booklet | Turn the page: liner notes (release, label, ℗/©; a playlist's description and maker) and the lyrics, lit line by line as it plays |
 | Click the disc | Play or pause (it spins while it plays) |
-| **Shuffle** / **Skip** on an open case | Play it shuffled (or toggle shuffle while it plays) / next track |
+| **Shuffle · Play · Skip** on the booklet, right of the title | Play it shuffled (or toggle shuffle while it plays) · play or pause · next track |
 | Drag the case | Turn it |
 | Click outside the case or press **Esc** | Put it back |
 | Hover the TV | Its screen shows controls: previous, play/pause, next and a seek bar |

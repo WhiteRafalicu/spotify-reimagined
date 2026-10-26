@@ -48,6 +48,90 @@ export function scrollToTrack(album, i) {
 
 const FONT = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
 
+// The player controls in the page's header, right of the title: shuffle, play/pause, skip.
+const CTL_Y = 168;
+const CONTROLS = [
+  { id: 'shuffle', x: SIZE - MARGIN - 26 - 16 - 72 - 16 - 26, r: 26 },
+  { id: 'play', x: SIZE - MARGIN - 26 - 16 - 36, r: 36 },
+  { id: 'skip', x: SIZE - MARGIN - 26, r: 26 },
+];
+const CONTROLS_W = 26 * 2 + 72 + 32 + 24; // what the title keeps clear of
+// Which control a point on the page is on, or null.
+export function controlAt(x, y) {
+  for (const c of CONTROLS) if (Math.hypot(x - c.x, y - CTL_Y) <= c.r + 6) return c.id;
+  return null;
+}
+// ctl: { playing, shuffle, live } for this album; hover: the control under the pointer.
+function drawControls(g, ctl = {}, hover) {
+  for (const c of CONTROLS) {
+    const off = c.id === 'skip' && !ctl.live;
+    const on = c.id === 'shuffle' && ctl.live && ctl.shuffle;
+    g.save();
+    g.translate(c.x, CTL_Y);
+    if (c.id === 'play') {
+      g.fillStyle = hover === 'play' ? '#3be477' : '#1ed760';
+      g.beginPath();
+      g.arc(0, 0, c.r, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#000';
+      if (ctl.live && ctl.playing) {
+        g.fillRect(-11, -14, 8, 28);
+        g.fillRect(3, -14, 8, 28);
+      } else {
+        g.beginPath();
+        g.moveTo(-8, -15);
+        g.lineTo(15, 0);
+        g.lineTo(-8, 15);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
+      continue;
+    }
+    if (hover === c.id && !off) {
+      g.fillStyle = 'rgba(255,255,255,0.12)';
+      g.beginPath();
+      g.arc(0, 0, c.r, 0, Math.PI * 2);
+      g.fill();
+    }
+    const ink = off ? 'rgba(255,255,255,0.25)' : on ? '#1ed760' : hover === c.id ? '#fff' : 'rgba(255,255,255,0.75)';
+    g.strokeStyle = g.fillStyle = ink;
+    g.lineWidth = 3;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    if (c.id === 'skip') {
+      g.beginPath();
+      g.moveTo(-9, -11);
+      g.lineTo(5, 0);
+      g.lineTo(-9, 11);
+      g.closePath();
+      g.fill();
+      g.fillRect(6, -11, 4, 22);
+    } else {
+      // Two crossing arrows.
+      const arrow = (y0, y1) => {
+        g.beginPath();
+        g.moveTo(-13, y0);
+        g.bezierCurveTo(-2, y0, 0, y1, 11, y1);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(7, y1 - 4);
+        g.lineTo(12, y1);
+        g.lineTo(7, y1 + 4);
+        g.stroke();
+      };
+      arrow(-8, 8);
+      arrow(8, -8);
+      if (on) {
+        g.beginPath();
+        g.arc(0, 19, 2.5, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    g.restore();
+  }
+}
+
 // The page tabs at the foot, right-aligned: [Tracks] [Notes] [Lyrics].
 export const PAGES = ['tracks', 'notes', 'lyrics'];
 const TAB_Y = SIZE - 60;
@@ -253,10 +337,11 @@ export function drawBooklet(canvas, album, paper, pg) {
 
   g.fillStyle = '#fff';
   g.font = `800 54px ${FONT}`;
-  g.fillText(fit(g, album.name, SIZE - MARGIN * 2), MARGIN, 168);
+  g.fillText(fit(g, album.name, SIZE - MARGIN * 2 - CONTROLS_W), MARGIN, 168);
   g.fillStyle = 'rgba(255,255,255,0.72)';
   g.font = `500 30px ${FONT}`;
-  g.fillText(fit(g, album.artist || '', SIZE - MARGIN * 2), MARGIN, 210);
+  g.fillText(fit(g, album.artist || '', SIZE - MARGIN * 2 - CONTROLS_W), MARGIN, 210);
+  drawControls(g, pg.ctl, pg.hoverControl);
 
   g.fillStyle = 'rgba(255,255,255,0.18)';
   g.fillRect(MARGIN, TOP - 18, SIZE - MARGIN * 2, 2);

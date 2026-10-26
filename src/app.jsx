@@ -80,6 +80,16 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
       onOpen: setOpen,
       onPick: (i) => playFrom(album, i),
       onDisc: () => playOrPause(album),
+      // The controls on the booklet.
+      getControls: () => {
+        const n = nowRef.current;
+        return { live: n.context === item.uri, playing: n.playing, shuffle: n.shuffle };
+      },
+      onControl: (id) => {
+        if (id === 'play') playOrPause(album);
+        else if (id === 'shuffle') shuffle(item);
+        else if (id === 'skip' && nowRef.current.context === item.uri) skip();
+      },
       onDismiss: onClose,
       onReady: () => {
         live3d.current = true;
@@ -157,20 +167,6 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
         </button>
         <button className="cds-chip" onClick={() => openPage(item)}>
           {item.kind === 'playlist' ? t('openPlaylist') : t('openAlbum')}
-        </button>
-        <button className="cds-chip is-play" onClick={() => playOrPause(item)}>
-          {live && now.playing ? t('pause') : t('play')}
-        </button>
-        <button
-          className={`cds-chip${live && now.shuffle ? ' is-on' : ''}`}
-          onClick={() => shuffle(item)}
-          aria-pressed={live && now.shuffle}
-          title={live ? (now.shuffle ? t('shuffleOff') : t('shuffleOn')) : t('shufflePlay')}
-        >
-          {t('shuffle')}
-        </button>
-        <button className="cds-chip" onClick={skip} disabled={!live} title={live ? t('skipHint') : t('skipIdle')}>
-          {t('skip')}
         </button>
         <button className={`cds-chip${pinned ? ' is-on' : ''}`} onClick={() => onPin(item)} aria-pressed={pinned}>
           {pinned ? t('pinned') : t('pin')}
