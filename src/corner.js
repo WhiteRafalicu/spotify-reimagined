@@ -517,10 +517,12 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
 
   // The lyrics whiteboard on the wall to the right of the TV (with the table).
   let board = null;
+  let lyricsMode = 'write';
   if (assets.board && furniture === 'table' && lyricsFor && getProgress) {
     later(() => {
       board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, fontAlt: assets.fontAlt, lyricsFor, getProgress, onReady: () => (arrange(), placed && place(...placed), reveal(board.group)) });
       group.add(board.group);
+      board.setMode(lyricsMode);
       if (screen.info) board.setTrack(screen.info);
     });
   }
@@ -758,6 +760,10 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   return {
     previewLyrics: (info, lyrics, ms) => board?.preview(info, lyrics, ms),
     boardSnapshot: () => board?.snapshot(),
+    setLyricsMode: (mode) => {
+      lyricsMode = mode;
+      board?.setMode(mode);
+    },
     group,
     place,
     update,

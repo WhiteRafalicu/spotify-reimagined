@@ -9,6 +9,7 @@ export const DEFAULTS = {
   sway: true, // the camera and the open case drift and lean toward the pointer
   cursorLight: true, // a lamp follows the pointer across the shelf
   glints: true, // star glints on bright highlights of the open case
+  lyrics: 'write', // write | line: the whiteboard writes each line out, or shows it whole
   size: 'normal', // small | normal | large | huge: how big the cases are on screen
   speed: 'normal', // slow | normal | fast: cases leaving the shelf, opening, closing and going back
   theme: 'walnut', // walnut | birch | minimal

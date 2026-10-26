@@ -2143,6 +2143,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     setQuality: (mode) => applyQuality(mode),
     setEffects(next) {
       const resize = next.size !== undefined && next.size !== look.size;
+      if (next.lyricsMode) corner?.setLyricsMode(next.lyricsMode);
       Object.assign(look, next);
       if (resize) layout();
       wake();

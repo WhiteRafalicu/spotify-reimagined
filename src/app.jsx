@@ -273,6 +273,18 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
         />
       </div>
       <div className="cds-toggle is-stacked">
+        <span>{t('lyricsMode')}</span>
+        <Segmented
+          label={t('lyricsMode')}
+          value={settings.lyrics}
+          onChange={(v) => set('lyrics', v)}
+          options={[
+            ['write', t('lyricsWrite')],
+            ['line', t('lyricsLine')],
+          ]}
+        />
+      </div>
+      <div className="cds-toggle is-stacked">
         <span>{t('speed')}</span>
         <Segmented
           label={t('speed')}
@@ -480,8 +492,8 @@ function App() {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
   useEffect(() => {
-    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1 });
-  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, host, cornerKey]);
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics });
+  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });

@@ -14,10 +14,11 @@ const HAND = '"CDS Pangolin", "Segoe Print", "Comic Sans MS", system-ui, sans-se
 const MARKER_CHARS = /^[\s\u0020-\u007e\u00a0-\u00ff\u0131\u0141\u0142\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u02c6\u02c7\u02d8-\u02dd\u2013\u2014\u2018-\u201a\u201c-\u201e\u2022\u2026\u2030\u2039\u203a\u2044\u20ac\u2212\u266a\u266b]*$/;
 const handFor = (text) => (MARKER_CHARS.test(text) ? MARKER : HAND);
 const INK = { black: '#1d1d1f' }; // one black marker; the next line is just lighter
-// A line is written out across most of the time it's sung (until the next line starts), but no
-// slower than this per character, so a line followed by a long pause doesn't crawl.
-const WRITE_SHARE = 0.85;
-const MS_PER_CHAR_MAX = 110;
+// A line is written out across the first part of the time it's sung (until the next line starts),
+// but no slower than this per character, so it keeps up with fast singing and a line followed by a
+// long pause doesn't crawl. In 'line' mode it appears whole instead.
+const WRITE_SHARE = 0.6;
+const MS_PER_CHAR_MAX = 70;
 
 // Letters as you'd count them (an emoji, a Korean syllable or a Thai letter with its marks is one),
 // so a line written out halfway never shows half a character.
@@ -95,7 +96,7 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
       }),
     ),
   );
-  const state = { track: null, info: null, lyrics: undefined, key: '', fontReady: false, size: new THREE.Vector3(480, 360, 28) };
+  const state = { track: null, info: null, lyrics: undefined, key: '', fontReady: false, mode: 'write', size: new THREE.Vector3(480, 360, 28) };
 
   // The two hands, loaded from the bundle under our own names so they can't clash.
   Promise.allSettled(
@@ -291,7 +292,7 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
       at = lineAt(ly, ms, duration);
       const chars = letters(ly.lines[at.i]?.text || '').length || 1;
       const span = Math.max(250, Math.min((at.next - at.start) * WRITE_SHARE, chars * MS_PER_CHAR_MAX));
-      reveal = ly.synced && at.i >= 0 ? Math.min(1, Math.max(0, (ms - at.start) / span)) : 1;
+      reveal = ly.synced && at.i >= 0 && state.mode === 'write' ? Math.min(1, Math.max(0, (ms - at.start) / span)) : 1;
       // Redraw only when the picture changes: a new line, or another letter written out.
       key = `${state.track}|${at.i}|${Math.round(reveal * chars)}`;
     } else key = `${state.track}|${ly === undefined ? 'loading' : 'none'}`;
@@ -307,6 +308,12 @@ export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor,
     group,
     setTrack,
     preview,
+    // 'write': each line is written out as it's sung; 'line': it appears whole.
+    setMode(mode) {
+      if (mode === state.mode) return;
+      state.mode = mode;
+      state.key = '';
+    },
     snapshot: () => g.canvas.toDataURL('image/png'),
     update,
     get current() {
