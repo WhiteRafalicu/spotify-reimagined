@@ -9,12 +9,15 @@ export const DEFAULTS = {
   sway: true, // the camera and the open case drift and lean toward the pointer
   cursorLight: true, // a lamp follows the pointer across the shelf
   glints: true, // star glints on bright highlights of the open case
+  size: 'normal', // small | normal | large | huge: how big the cases are on screen
   speed: 'normal', // slow | normal | fast: cases leaving the shelf, opening, closing and going back
   theme: 'walnut', // walnut | birch | minimal
   lang: 'auto', // auto (Spotify's language) or a code from i18n.js
 };
 // How much faster than normal each animation speed runs.
 export const SPEEDS = { slow: 0.7, normal: 1, fast: 1.8 };
+// Shelf size: how much taller a row is on screen than at normal.
+export const SIZES = { small: 0.8, normal: 1, large: 1.3, huge: 1.7 };
 const KEY = 'cd-shelf:settings';
 const EVENT = 'cd-shelf:settings';
 

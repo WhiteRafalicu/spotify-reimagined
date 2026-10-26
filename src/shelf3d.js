@@ -391,7 +391,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
   // Both move highlights across thin glass edges, which some people see as flicker.
-  const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1 };
+  const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1 };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLost };
@@ -1321,6 +1321,9 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
 
   function layout() {
     wake();
+    // Keep the view where it was relative to the shelf: at the top stays at the top, otherwise the
+    // same place, within the new range.
+    const wasTop = view.w > 1 && Math.abs(cam.target - topY()) < 1;
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
     // Never render more than MAX_PIXELS, whatever the screen density, quality or debug setting asks:
@@ -1333,7 +1336,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     rtBehind.setSize(size.x, size.y);
     camera.aspect = w / h;
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-    const visH = ROW_PITCH * clamp(h / ROW_PX, 1.8, 6);
+    // Shelf size: a bigger size means taller rows on screen, so fewer rows and fewer cases per row.
+    const visH = ROW_PITCH * clamp(h / (ROW_PX * look.size), 1.2, 6);
     const dist = visH / 2 / tanHalf + D / 2;
     const visW = 2 * (dist - D / 2) * tanHalf * camera.aspect;
     view = { w, h, dist, visW, visH };
@@ -1343,6 +1347,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     scene.fog.far = dist * 2.6 + 900;
     perRow = Math.max(4, Math.floor((visW - MARGIN * 2) / PITCH_X));
     place();
+    if (view.w > 1) {
+      cam.target = wasTop ? topY() : clamp(cam.target, bottomY(), topY());
+      if (wasTop) cam.y = cam.target;
+    }
   }
 
   const rowY = (r) => -r * ROW_PITCH;
@@ -1566,7 +1574,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       if (hovered && hovered !== pulled) {
         const d = c.index - hovered.index;
         const sameRow = Math.floor(c.index / perRow) === Math.floor(hovered.index / perRow);
-        if (c === hovered) {
+        if (c === hovered && zoom.z > 1.25) {
+          // Zoomed in to read the spines: the case just nudges forward instead of swinging out at
+          // the (now much closer) camera.
+          tg.z = 14;
+        } else if (c === hovered) {
           tg.z = CLEAR_Z + 8;
           tg.y += 4;
           tg.ry = -0.55 * clear;
@@ -1586,8 +1598,53 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     }
   }
 
+  // Zoom toward the pointer (Ctrl + wheel, or a touchpad pinch). z is how much closer the camera is;
+  // (ox, oy) shifts where it aims so the point under the pointer stays put. Esc zooms back out.
+  const zoom = { z: 1, target: 1, ox: 0, oy: 0, tox: 0, toy: 0 };
+  const FRONT_Z = D / 2;
+  function zoomAt(e, factor) {
+    const r = container.getBoundingClientRect();
+    const nx = ((e.clientX - r.left) / r.width) * 2 - 1;
+    const ny = 1 - ((e.clientY - r.top) / r.height) * 2;
+    const next = clamp(zoom.target * factor, 1, 3.5);
+    if (next === zoom.target) return;
+    // Where the pointer is now, on the shelf front: keep it under the pointer at the new zoom.
+    raycaster.setFromCamera(_ndc.set(nx, ny), camera);
+    const hit = raycaster.ray.intersectPlane(frontPlane, _zp);
+    zoom.target = next;
+    if (next === 1 || !hit) {
+      zoom.tox = zoom.toy = 0;
+    } else {
+      const base = baseAim();
+      const halfH = ((baseZ() - FRONT_Z) / next) * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      zoom.tox = clamp(hit.x - nx * halfH * camera.aspect - base.x, -view.visW / 2, view.visW / 2);
+      zoom.toy = clamp(hit.y - ny * halfH - base.y, -view.visH / 2, view.visH / 2);
+    }
+    wake();
+  }
+  const frontPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -FRONT_Z);
+  const _ndc = new THREE.Vector2();
+  const _zp = new THREE.Vector3();
+  // The camera's aim and distance before zoom (set each step).
+  let aimNow = { x: 0, y: 0 };
+  let zNow = 800;
+  const baseAim = () => aimNow;
+  const baseZ = () => zNow;
+  function resetZoom() {
+    zoom.target = 1;
+    zoom.tox = zoom.toy = 0;
+    wake();
+  }
+
   function step(dt) {
     t += dt;
+    {
+      const k = 1 - Math.exp(-dt * 8);
+      zoom.z += (zoom.target - zoom.z) * k;
+      zoom.ox += (zoom.tox - zoom.ox) * k;
+      zoom.oy += (zoom.toy - zoom.oy) * k;
+      if (Math.abs(zoom.target - zoom.z) < 1e-3) zoom.z = zoom.target;
+    }
     // Camera: scroll target plus a slow drift and a lean toward the pointer.
     cam.y += (cam.target - cam.y) * (1 - Math.exp(-dt * 6));
     const lean = pointer.over && look.sway;
@@ -1616,8 +1673,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       const halfVis = (camZ - fr.z) * tanHalf;
       camDY = (corner.standTopY - 30 + halfVis * 0.62 - cornerMid()) * ease;
     } else camDY = 0;
-    camera.position.set(camX + cam.x + drift, cam.y + camDY + py * 14 + (reducedMotion || !look.sway ? 0 : Math.sin(t * 0.17) * 3), camZ);
-    camera.lookAt(camX + cam.x * 0.3 + drift * 0.5, cam.y + camDY, 0);
+    aimNow = { x: camX + cam.x * 0.3 + drift * 0.5, y: cam.y + camDY };
+    zNow = camZ;
+    camZ = FRONT_Z + (camZ - FRONT_Z) / zoom.z;
+    camera.position.set(camX + cam.x + drift + zoom.ox, cam.y + camDY + py * 14 + (reducedMotion || !look.sway ? 0 : Math.sin(t * 0.17) * 3) + zoom.oy, camZ);
+    camera.lookAt(aimNow.x + zoom.ox, aimNow.y + zoom.oy, 0);
     camera.updateMatrixWorld();
 
     // The key follows the scroll, snapped to whole shadow texels so its shadows don't shimmer.
@@ -1650,7 +1710,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     lamp.intensity += (glow - lamp.intensity) * (1 - Math.exp(-dt * 4));
 
     // What the camera can see, top to bottom: rows outside it skip drawing and updating.
-    const lookY = cam.y + camDY;
+    const lookY = cam.y + camDY + zoom.oy;
     const seeHalf = camera.position.z * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) + H;
     if (deco.boardY) {
       const nearest = clamp(Math.round(-lookY / ROW_PITCH), 0, Math.max(0, rowCount - 1));
@@ -1688,7 +1748,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       const c = layerQueue.shift();
       if (c.slot >= 0 && !c.layered) writeLayers(c);
     }
-    let moving = cornerBusy || Math.abs(cam.target - cam.y) > 0.05 || !!spot || layerQueue.length > 0;
+    let moving = cornerBusy || Math.abs(cam.target - cam.y) > 0.05 || !!spot || layerQueue.length > 0 || zoom.z !== zoom.target || Math.abs(zoom.tox - zoom.ox) + Math.abs(zoom.toy - zoom.oy) > 0.05;
 
     targets();
     let wrote = instDirty;
@@ -1975,13 +2035,19 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   };
   const onWheel = (e) => {
     e.preventDefault();
-    const perPx = view.visH / view.h;
+    if (e.ctrlKey) return zoomAt(e, Math.exp(-e.deltaY * 0.0025));
+    const perPx = view.visH / view.h / zoom.z;
     cam.target = clamp(cam.target - e.deltaY * perPx * 0.9, bottomY(), topY());
   };
   // Keyboard: arrows move a selection along the shelf (up/down by a row), Page Up/Down by three rows,
   // Home/End to the ends, Enter or Space opens the selected case. The selection is the hover.
   let kbIndex = -1;
   const onKey = (e) => {
+    if (e.key === 'Escape' && zoom.target !== 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      return resetZoom();
+    }
     if (pulled || !order.length) return;
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -perRow, ArrowDown: perRow, PageUp: -perRow * 3, PageDown: perRow * 3 }[e.key];
     if (step !== undefined || e.key === 'Home' || e.key === 'End') {
@@ -2076,7 +2142,9 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     // 'auto' | 'high' | 'medium' | 'low'
     setQuality: (mode) => applyQuality(mode),
     setEffects(next) {
+      const resize = next.size !== undefined && next.size !== look.size;
       Object.assign(look, next);
+      if (resize) layout();
       wake();
     },
     // Debug: put lyrics on the whiteboard at a fixed time, e.g.

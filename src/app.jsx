@@ -4,7 +4,7 @@ import { createStage } from './stage';
 import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
 import assets from './assets.gen';
 import css from './style.css';
-import { DEFAULTS, SPEEDS, getSettings, onSettings, setSettings } from './settings';
+import { DEFAULTS, SIZES, SPEEDS, getSettings, onSettings, setSettings } from './settings';
 import { LANGUAGE_NAMES, t } from './i18n';
 
 const { useEffect, useMemo, useRef, useState, useCallback } = Spicetify.React;
@@ -256,6 +256,23 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
         <Menu label={t('language')} value={settings.lang} onChange={(v) => set('lang', v)} options={[['auto', t('langAuto')], ...Object.entries(LANGUAGE_NAMES)]} />
       </div>
       <div className="cds-toggle is-stacked">
+        <span>
+          {t('size')}
+          <small>{t('sizeHint')}</small>
+        </span>
+        <Segmented
+          label={t('size')}
+          value={settings.size}
+          onChange={(v) => set('size', v)}
+          options={[
+            ['small', t('sizeSmall')],
+            ['normal', t('sizeNormal')],
+            ['large', t('sizeLarge')],
+            ['huge', t('sizeHuge')],
+          ]}
+        />
+      </div>
+      <div className="cds-toggle is-stacked">
         <span>{t('speed')}</span>
         <Segmented
           label={t('speed')}
@@ -463,8 +480,8 @@ function App() {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
   useEffect(() => {
-    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1 });
-  }, [settings.sway, settings.cursorLight, settings.speed, host, cornerKey]);
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1 });
+  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
