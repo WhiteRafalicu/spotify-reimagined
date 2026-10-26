@@ -133,9 +133,33 @@ function blobTexture() {
 }
 
 // The on-screen display: a channel tag and the track, in a chunky TV font.
-function drawOsd(canvas, { name, artist, paused, channel }) {
+// The on-screen controls, in the OSD's own 0..1 coordinates (y down): a transport row and a
+// progress bar. Shown while the pointer is over the TV; clicking them works the player.
+const CONTROLS = { rowTop: 0.3, rowBottom: 0.58, barTop: 0.64, barBottom: 0.76 };
+export function tvZone(x, y) {
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  if (y >= CONTROLS.barTop && y <= CONTROLS.barBottom && x >= 0.07 && x <= 0.93) return { zone: 'seek', frac: (x - 0.07) / 0.86 };
+  if (y >= CONTROLS.rowTop && y <= CONTROLS.rowBottom) return { zone: x < 0.36 ? 'prev' : x > 0.64 ? 'next' : 'play' };
+  return { zone: 'play' };
+}
+// The screen's UV (as the ray hit it) to where that point shows on the OSD: the CRT shader bends
+// the picture (barrel distortion) before sampling, so the same bend applies here. OSD y runs down.
+function osdPoint(uv) {
+  const cx = uv.x - 0.5;
+  const cy = uv.y - 0.5;
+  const k = (1 + 0.11 * (cx * cx + cy * cy)) * 1.02;
+  return { x: 0.5 + cx * k, y: 1 - (0.5 + cy * k) };
+}
+const mmss = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+function drawOsd(canvas, { name, artist, paused, channel, controls }) {
   const g = canvas.getContext('2d');
-  g.clearRect(0, 0, canvas.width, canvas.height);
+  const W = canvas.width;
+  const H = canvas.height;
+  g.clearRect(0, 0, W, H);
   g.font = '700 30px "VT323", "Courier New", monospace';
   g.textBaseline = 'top';
   const text = (s, x, y, color = '#7cff8a') => {
@@ -144,14 +168,73 @@ function drawOsd(canvas, { name, artist, paused, channel }) {
     g.fillStyle = color;
     g.fillText(s, x, y);
   };
-  text(`CH ${String(channel).padStart(2, '0')}`, canvas.width - 140, 26);
+  text(`CH ${String(channel).padStart(2, '0')}`, W - 140, 26);
   if (paused) text(tr('paused'), 34, 26, '#ffffff');
   if (name) {
     g.font = '700 26px "VT323", "Courier New", monospace';
     const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-    text(clip(name.toUpperCase(), 26), 34, canvas.height - 84, '#ffffff');
-    text(clip(artist || '', 30), 34, canvas.height - 52);
+    text(clip(name.toUpperCase(), 26), 34, H - 84, '#ffffff');
+    text(clip(artist || '', 30), 34, H - 52);
   }
+  if (!controls) return;
+  // A dim band behind the controls so they read over any picture.
+  g.fillStyle = 'rgba(0,0,0,0.45)';
+  g.fillRect(0, H * (CONTROLS.rowTop - 0.03), W, H * (CONTROLS.barBottom - CONTROLS.rowTop + 0.06));
+  const cy = (H * (CONTROLS.rowTop + CONTROLS.rowBottom)) / 2;
+  const on = (z) => (controls.hover === z ? '#ffffff' : '#7cff8a');
+  // Drawn shapes rather than font glyphs, so they look the same everywhere.
+  const tri = (x, dir, size, color) => {
+    g.beginPath();
+    g.moveTo(x - (dir * size) / 2, cy - size / 2);
+    g.lineTo(x + (dir * size) / 2, cy);
+    g.lineTo(x - (dir * size) / 2, cy + size / 2);
+    g.closePath();
+    g.fillStyle = color;
+    g.fill();
+  };
+  const shadowed = (fn) => {
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.7)';
+    g.shadowOffsetX = g.shadowOffsetY = 2;
+    fn();
+    g.restore();
+  };
+  shadowed(() => {
+    // Previous: |◀◀
+    g.fillStyle = on('prev');
+    g.fillRect(W * 0.18 - 34, cy - 22, 7, 44);
+    tri(W * 0.18 - 6, -1, 44, on('prev'));
+    tri(W * 0.18 + 22, -1, 44, on('prev'));
+    // Play / pause
+    if (controls.paused) tri(W * 0.5 + 4, 1, 56, on('play'));
+    else {
+      g.fillStyle = on('play');
+      g.fillRect(W * 0.5 - 22, cy - 28, 15, 56);
+      g.fillRect(W * 0.5 + 7, cy - 28, 15, 56);
+    }
+    // Next: ▶▶|
+    tri(W * 0.82 - 22, 1, 44, on('next'));
+    tri(W * 0.82 + 6, 1, 44, on('next'));
+    g.fillStyle = on('next');
+    g.fillRect(W * 0.82 + 27, cy - 22, 7, 44);
+  });
+  // Progress bar with the times; where the pointer is on it, a marker shows where a click goes.
+  const x0 = W * 0.07;
+  const x1 = W * 0.93;
+  const by = H * ((CONTROLS.barTop + CONTROLS.barBottom) / 2) + 6;
+  const f = controls.duration ? Math.min(1, controls.progress / controls.duration) : 0;
+  g.fillStyle = 'rgba(124,255,138,0.3)';
+  g.fillRect(x0, by - 4, x1 - x0, 8);
+  g.fillStyle = on('seek');
+  g.fillRect(x0, by - 4, (x1 - x0) * f, 8);
+  if (controls.hover === 'seek' && controls.hoverFrac !== undefined) {
+    g.fillStyle = '#ffffff';
+    g.fillRect(x0 + (x1 - x0) * controls.hoverFrac - 2, by - 12, 4, 24);
+  }
+  g.font = '700 24px "VT323", "Courier New", monospace';
+  text(mmss(controls.hover === 'seek' && controls.hoverFrac !== undefined ? controls.hoverFrac * controls.duration : controls.progress), x0, by - 36);
+  const total = mmss(controls.duration || 0);
+  text(total, x1 - g.measureText(total).width, by - 36);
 }
 
 export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, contactMat, quadGeo, assets, onScreenColor, onChange, prepare, lyricsFor, getProgress }) {
@@ -530,6 +613,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let boardX = BOARD_X;
 
   // ---- What's on: Canvas video when the track has one, else the album art panning slowly. ----
+  // Where the pointer is on the TV's screen (OSD coordinates), while it's over the TV.
+  let tvPointer = null;
+  let osdAt = 0;
   const screen = { kind: 'off', tex: null, video: null, aspect: 1, staticUntil: 0, osdUntil: 0, power: 0, channel: 3, track: null, paused: false, art: null };
   const sampler = document.createElement('canvas');
   sampler.width = sampler.height = 8;
@@ -658,7 +744,14 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       dropSource();
       screen.kind = 'off';
     }
-    drawOsd(osdCanvas, { name: screen.info?.name, artist: screen.info?.artist, paused, channel: screen.channel });
+    redrawOsd();
+  }
+  function redrawOsd() {
+    const zone = tvPointer && tvZone(tvPointer.x, tvPointer.y);
+    const controls = tvPointer && screen.info
+      ? { hover: zone?.zone, hoverFrac: zone?.frac, paused: screen.paused, progress: getProgress?.() || 0, duration: screen.info.duration || 0 }
+      : null;
+    drawOsd(osdCanvas, { name: screen.info?.name, artist: screen.info?.artist, paused: screen.paused, channel: screen.channel, controls });
     osdTex.needsUpdate = true;
   }
 
@@ -700,7 +793,11 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     u.uTime.value = time;
     u.uPower.value = screen.power;
     u.uStatic.value = Math.max(time < screen.staticUntil ? 1 : 0, kindNow === 'none' ? 0.35 : 0, u.uStatic.value * Math.exp(-dt * 9));
-    u.uOsdAlpha.value = screen.paused ? 1 : Math.min(1, Math.max(0, (screen.osdUntil - time) / 0.6));
+    if (tvPointer && time - osdAt > 0.12) {
+      osdAt = time;
+      redrawOsd();
+    }
+    u.uOsdAlpha.value = screen.paused || tvPointer ? 1 : Math.min(1, Math.max(0, (screen.osdUntil - time) / 0.6));
     // Canvas videos are graded for a phone screen and already bright; covers get more push.
     const bright = kindNow === 'video' ? 1.0 : 2.0;
     u.uBright.value += ((screen.paused ? bright * 0.6 : bright) - u.uBright.value) * (1 - Math.exp(-dt * 4));
@@ -801,9 +898,33 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     get tvCenterY() {
       return state.tvCenterY;
     },
-    // True when the ray hits the TV (clicking it plays or pauses).
+    // True when the ray hits the TV.
     hitsTv(raycaster) {
       return pickables.length > 0 && raycaster.intersectObjects(pickables, false).length > 0;
+    },
+    // What a click on the TV does: a control on the screen ({ zone: 'prev' | 'play' | 'next' |
+    // 'seek', frac }), or play/pause anywhere else on the set. Null when the ray misses the TV.
+    tvAction(raycaster) {
+      if (!pickables.length) return null;
+      const hit = raycaster.intersectObjects(pickables, false)[0];
+      if (!hit) return null;
+      const p = hit.object === screenMesh && hit.uv ? osdPoint(hit.uv) : null;
+      return (p && tvZone(p.x, p.y)) || { zone: 'play' };
+    },
+    // The pointer over the TV (a raycaster) shows the controls; null hides them.
+    pointTv(raycaster) {
+      let next = null;
+      if (raycaster && screenMesh) {
+        const hit = raycaster.intersectObject(screenMesh, false)[0];
+        if (hit?.uv) next = osdPoint(hit.uv);
+      }
+      const was = tvPointer;
+      tvPointer = next;
+      if (!!was !== !!next || (next && was && tvZone(next.x, next.y)?.zone !== tvZone(was.x, was.y)?.zone)) {
+        redrawOsd();
+        onChange?.();
+      }
+      return next ? tvZone(next.x, next.y) : null;
     },
     dispose() {
       mirror.tex?.dispose();

@@ -437,7 +437,14 @@ function App() {
     const handlers = {
       onPick: (item) => pull(item),
       onHover: setHover,
-      onTv: () => Spicetify.Player.togglePlay(),
+      // The TV's on-screen controls (see corner.js tvZone).
+      onTv: ({ zone, frac } = {}) => {
+        const P = Spicetify.Player;
+        if (zone === 'prev') P.back();
+        else if (zone === 'next') P.next();
+        else if (zone === 'seek') P.seek(Math.round(frac * (P.getDuration() || 0)));
+        else P.togglePlay();
+      },
       onLost: () => {
         console.warn('[cd-shelf] WebGL context lost: rebuilding the shelf');
         setOnStage(null);

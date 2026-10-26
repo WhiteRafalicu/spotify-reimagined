@@ -87,7 +87,7 @@ const STRINGS = {
     shelfLabel:
       'CD shelf. Arrow keys move between discs, Page Up and Page Down move faster, Enter opens the selected disc, Escape puts it back.',
     tv: 'CRT TV',
-    tvHint: 'click to play or pause',
+    tvHint: 'use the buttons on the screen; click elsewhere to play or pause',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ALBUM',
     kindSingle: 'SINGLE',
@@ -185,7 +185,7 @@ const STRINGS = {
     shelfLabel:
       'Raft de CD-uri. Săgețile te mută între discuri, Page Up și Page Down mai repede, Enter deschide discul ales, Escape îl pune la loc.',
     tv: 'Televizor CRT',
-    tvHint: 'apasă pentru redare sau pauză',
+    tvHint: 'folosește butoanele de pe ecran; apasă în altă parte pentru redare sau pauză',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ALBUM',
     kindSingle: 'SINGLE',
@@ -283,7 +283,7 @@ const STRINGS = {
     shelfLabel:
       'Estante de CD. Las flechas mueven entre discos, Re Pág y Av Pág más rápido, Intro abre el disco elegido, Escape lo devuelve.',
     tv: 'Tele CRT',
-    tvHint: 'haz clic para reproducir o pausar',
+    tvHint: 'usa los botones de la pantalla; haz clic en otro sitio para reproducir o pausar',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ÁLBUM',
     kindSingle: 'SENCILLO',
@@ -381,7 +381,7 @@ const STRINGS = {
     shelfLabel:
       'CD-Regal. Pfeiltasten wechseln zwischen CDs, Bild auf und Bild ab schneller, Enter öffnet die gewählte CD, Escape stellt sie zurück.',
     tv: 'Röhrenfernseher',
-    tvHint: 'klicken für Play/Pause',
+    tvHint: 'Tasten auf dem Bildschirm benutzen; woanders klicken für Wiedergabe oder Pause',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ALBUM',
     kindSingle: 'SINGLE',
@@ -479,7 +479,7 @@ const STRINGS = {
     shelfLabel:
       'Étagère à CD. Les flèches passent d’un disque à l’autre, Page préc. et Page suiv. plus vite, Entrée ouvre le disque choisi, Échap le range.',
     tv: 'Télé cathodique',
-    tvHint: 'clique pour lecture ou pause',
+    tvHint: 'utilise les boutons à l’écran ; clique ailleurs pour lecture ou pause',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ALBUM',
     kindSingle: 'SINGLE',
@@ -577,7 +577,7 @@ const STRINGS = {
     shelfLabel:
       'Estante de CDs. As setas mudam de disco, Page Up e Page Down mais rápido, Enter abre o disco escolhido, Escape o guarda.',
     tv: 'TV de tubo',
-    tvHint: 'clique para tocar ou pausar',
+    tvHint: 'use os botões na tela; clique em outro lugar para tocar ou pausar',
     kindPlaylist: 'PLAYLIST',
     kindAlbum: 'ÁLBUM',
     kindSingle: 'SINGLE',

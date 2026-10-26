@@ -2010,24 +2010,32 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     if (!hovered && corner) {
       raycaster.setFromCamera(pointer.ndc, camera);
       const onTvNow = corner.hitsTv(raycaster);
+      corner.pointTv(onTvNow ? raycaster : null);
       container.style.cursor = onTvNow ? 'pointer' : '';
       if (onTvNow !== overTv) {
         overTv = onTvNow;
         handlers.onHover?.(onTvNow ? { name: tr('tv'), artist: tr('tvHint') } : null);
       }
-    } else if (overTv) overTv = false;
+    } else if (overTv) {
+      overTv = false;
+      corner?.pointTv(null);
+    }
   };
   let overTv = false;
   const onLeave = () => {
     pointer.over = false;
     setHovered(null);
+    corner?.pointTv(null);
   };
   const onClick = (e) => {
     if (pulled || e.button !== 0) return;
     onMove(e);
     const c = pick();
     if (!c) {
-      if (overTv) handlers.onTv?.();
+      if (overTv && corner) {
+        raycaster.setFromCamera(pointer.ndc, camera);
+        handlers.onTv?.(corner.tvAction(raycaster) || { zone: 'play' });
+      }
       return;
     }
     pullOut(c.item.uri);
