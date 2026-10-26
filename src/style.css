@@ -491,3 +491,9 @@
 .cds-shelfie .cds-tools {
   align-items: center;
 }
+
+.cds-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}

@@ -3,7 +3,7 @@ import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
 import { sections } from './sections';
 import { createStage } from './stage';
-import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes, shuffle, skip } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
@@ -27,7 +27,10 @@ function usePlayer() {
     const update = () => setNow(nowPlaying());
     Spicetify.Player.addEventListener('songchange', update);
     Spicetify.Player.addEventListener('onplaypause', update);
+    // Shuffle has no event; it can be changed from the player bar too.
+    const poll = setInterval(() => setNow((n) => (n.shuffle === !!Spicetify.Player.getShuffle?.() ? n : nowPlaying())), 1000);
     return () => {
+      clearInterval(poll);
       Spicetify.Player.removeEventListener('songchange', update);
       Spicetify.Player.removeEventListener('onplaypause', update);
     };
@@ -157,6 +160,17 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
         </button>
         <button className="cds-chip is-play" onClick={() => playOrPause(item)}>
           {live && now.playing ? t('pause') : t('play')}
+        </button>
+        <button
+          className={`cds-chip${live && now.shuffle ? ' is-on' : ''}`}
+          onClick={() => shuffle(item)}
+          aria-pressed={live && now.shuffle}
+          title={live ? (now.shuffle ? t('shuffleOff') : t('shuffleOn')) : t('shufflePlay')}
+        >
+          {t('shuffle')}
+        </button>
+        <button className="cds-chip" onClick={skip} disabled={!live} title={live ? t('skipHint') : t('skipIdle')}>
+          {t('skip')}
         </button>
         <button className={`cds-chip${pinned ? ' is-on' : ''}`} onClick={() => onPin(item)} aria-pressed={pinned}>
           {pinned ? t('pinned') : t('pin')}

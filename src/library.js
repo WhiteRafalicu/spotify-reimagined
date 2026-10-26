@@ -162,7 +162,22 @@ export function nowPlaying() {
     context: d?.context?.uri || null,
     track: d?.item?.uri || null,
     playing: !!Spicetify.Player.isPlaying(),
+    shuffle: !!Spicetify.Player.getShuffle?.(),
   };
+}
+
+// Shuffle from the case: if this album or playlist is playing, toggle shuffle; otherwise turn
+// shuffle on and start it (Spotify then picks the order).
+export async function shuffle(item) {
+  const P = Spicetify.Player;
+  if (nowPlaying().context === item.uri) return P.setShuffle(!P.getShuffle());
+  P.setShuffle(true);
+  return P.playUri(item.uri);
+}
+
+// Skip to the next track (only offered while this album or playlist is playing).
+export function skip() {
+  return Spicetify.Player.next();
 }
 
 export function playFrom(item, index) {
