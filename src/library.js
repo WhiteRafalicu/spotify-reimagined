@@ -1,6 +1,7 @@
 // Reading the library and playing from it, through the APIs Spicetify exposes on the desktop client.
 
 import { blankCoverFor } from './cover';
+import { t } from './i18n';
 
 const toHttps = (url) => {
   if (!url) return null;
@@ -65,11 +66,13 @@ function toItems(albums, playlists) {
   }
   for (const p of playlists) {
     if (p.type !== 'playlist') continue;
-    const img = toHttps(p.images?.[0]?.url) || blankCoverFor(p.name);
+    // A playlist can have an empty name; it's still somebody's mix.
+    const name = p.name?.trim() || t('untitledMix');
+    const img = toHttps(p.images?.[0]?.url) || blankCoverFor(name);
     items.push({
       kind: 'playlist',
       uri: p.uri,
-      name: p.name,
+      name,
       artist: p.owner?.name || '',
       thumb: img,
       art: img,

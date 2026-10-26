@@ -23,6 +23,18 @@ const ROOM_SIZE = 256;
 const BOOK_Z = 2.55;
 const LABEL_X = -HALF - 0.35; // the spine strip, just outside the hinge-side rail
 const STAND = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+// Case types by what's in them: CD singles and EPs come in slim cases, box sets and compilations in
+// fat double cases, everything else in a standard jewel case. (Thickness is the case geometry's z.)
+const SLIM = 0.52;
+const FAT = 1.75;
+const BOX_NAME = /\b(box set|boxset|anthology|the complete|collection|discography)\b/i;
+function thickFor(item) {
+  if (item.kind !== 'album') return 1;
+  if (item.albumType === 'single' || item.albumType === 'ep') return SLIM;
+  if (item.albumType === 'compilation' || BOX_NAME.test(item.name || '')) return FAT;
+  return 1;
+}
+const THICK = new Map([1, SLIM, FAT].map((k) => [k, new THREE.Matrix4().makeScale(1, 1, k)]));
 const PITCH_X = W + GAP;
 const BOARD = 14;
 const ROW_PITCH = H + BOARD + 34;
@@ -108,9 +120,55 @@ function fitText(g, text, width) {
   return text.slice(0, lo).trimEnd() + '…';
 }
 
+// A burned mix: playlists get a paper insert with the name handwritten in marker, a strip of tape
+// in the cover's colour at the top, and faint ruled lines.
+function drawCdrSpine(g, w, h, item, img) {
+  g.fillStyle = '#ece6d8';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(120,100,70,0.08)';
+  for (let i = 0; i < 400; i++) g.fillRect((i * 37) % w, (i * 113) % h, 1, 2);
+  g.strokeStyle = 'rgba(70,110,170,0.22)';
+  g.lineWidth = Math.max(1, w / 64);
+  for (const f of [0.28, 0.72]) {
+    g.beginPath();
+    g.moveTo(w * f, 0);
+    g.lineTo(w * f, h);
+    g.stroke();
+  }
+  // The tape: the cover's colours, squashed into a short strip.
+  const tape = Math.round(h * 0.09);
+  if (img) g.drawImage(img, 0, img.naturalHeight * 0.35, img.naturalWidth, img.naturalHeight * 0.3, 0, 0, w, tape);
+  else {
+    g.fillStyle = '#d9b44a';
+    g.fillRect(0, 0, w, tape);
+  }
+  g.fillStyle = 'rgba(255,255,255,0.18)';
+  g.fillRect(0, tape - 3, w, 3);
+  g.save();
+  g.translate(w / 2, 0);
+  g.rotate(Math.PI / 2);
+  const k = w / 64;
+  g.scale(k, k);
+  g.textBaseline = 'middle';
+  const hand = '"CDS Permanent Marker", "Permanent Marker", "CDS Pangolin", "Segoe Print", "Comic Sans MS", cursive';
+  g.font = `34px ${hand}`;
+  g.fillStyle = '#1d2a52';
+  g.rotate(-0.012);
+  const name = fitText(g, item.name, h / k - tape / k - 70);
+  g.fillText(name, tape / k + 22, 2);
+  const used = g.measureText(name).width;
+  if (item.artist && h / k - tape / k - 70 - used > 90) {
+    g.font = `22px ${hand}`;
+    g.fillStyle = 'rgba(29,42,82,0.6)';
+    g.fillText(fitText(g, `– ${item.artist}`, h / k - tape / k - 80 - used), tape / k + 22 + used + 14, 4);
+  }
+  g.restore();
+}
+
 function drawSpine(canvas, item, img) {
   const [w, h] = SPINE_PX;
   const g = canvas.getContext('2d');
+  if (item.kind === 'playlist') return drawCdrSpine(g, w, h, item, img);
   g.fillStyle = item.kind === 'playlist' ? '#3a3d44' : '#1c1c1f';
   g.fillRect(0, 0, w, h);
   if (img) {
@@ -395,6 +453,19 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLid, onLost };
+  // The marker hand for the CD-R spines (the whiteboard loads it too; whichever is first adds it).
+  if (assets.font && ![...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker')) {
+    new FontFace('CDS Permanent Marker', `url(${assets.font})`)
+      .load()
+      .then((f) => {
+        document.fonts.add(f);
+        // Spines drawn before it arrived are redrawn with it.
+        for (const [uri, entry] of layerCache) if (cases.get(uri)?.item.kind === 'playlist') entry.final = false;
+        for (const c of slotOwner) if (c && c.item.kind === 'playlist') (c.layered = false), layerQueue.push(c);
+        wake();
+      })
+      .catch(() => {});
+  }
   let detached = false;
   const canvas = document.createElement('canvas');
   canvas.className = 'cds-shelf-canvas';
@@ -1193,6 +1264,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   function makeCase(item) {
     return {
       item,
+      thick: thickFor(item),
       slot: -1,
       slotGen: 0,
       layered: false,
@@ -1408,16 +1480,35 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       for (const d of before.get(i) || []) flow.push({ divider: d });
       flow.push(uri);
     });
-    rowCount = Math.ceil(flow.length / perRow);
+    // Rows fill by width (slim singles take about half a slot, box sets more), so each entry's place
+    // is worked out along the row rather than from its index.
     const rowW = perRow * PITCH_X;
-    const at = (i) => ({ x: -rowW / 2 + PITCH_X * ((i % perRow) + 0.5), y: rowY(Math.floor(i / perRow)) });
+    flowAt = [];
+    rowStart = [0];
+    let r = 0;
+    let used = 0;
+    flow.forEach((e, i) => {
+      const w = typeof e === 'string' ? W * cases.get(e).thick + GAP : PITCH_X;
+      if (used + w > rowW + 0.01 && used > 0) {
+        r++;
+        used = 0;
+        rowStart.push(i);
+      }
+      flowAt.push({ x: -rowW / 2 + used + w / 2, y: rowY(r), row: r });
+      used += w;
+    });
+    rowStart.push(flow.length);
+    rowCount = flow.length ? r + 1 : 0;
+    const at = (i) => flowAt[i];
     let pos = 0;
     flow.forEach((e, i) => {
       if (typeof e !== 'string') return;
       const c = cases.get(e);
       c.index = i;
       c.pos = pos++;
-      Object.assign(c.home, at(i));
+      c.row = flowAt[i].row;
+      c.home.x = flowAt[i].x;
+      c.home.y = flowAt[i].y;
     });
     placeDividers(flow, at);
     // At least three rows of boards: a short library leaves empty shelves (room to grow) rather than
@@ -1526,8 +1617,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       c.spring = { k: 34, c: 10.5, until: t + 3 };
       c.turnAt = t + 0.7; // shows its cover for a moment before squaring up
       spotlit = { c, until: t + 3.4 };
-      const row = Math.floor(c.index / perRow);
-      const y = rowY(row);
+      const y = rowY(c.row);
       if (y > cam.y + view.visH * 0.32 || y < cam.y - view.visH * 0.32) cam.target = clamp(y - 10, bottomY(), topY());
     };
     Promise.race([c.ready || Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]).then(go, go);
@@ -1536,6 +1626,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   // Divider cards: a thin kraft card in its slot, a little taller than the cases, with an index tab
   // above the spines facing the room, the section's name written on it in marker.
   let flow = [];
+  let flowAt = []; // { x, y, row } per flow entry
+  let rowStart = [0]; // the first flow entry of each row (and the end)
   let dividerList = [];
   const dividerMeshes = new Map(); // label -> { card, tab, tex }
   const DIV_W = 1.6;
@@ -1575,8 +1667,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     list.forEach((e, i) => typeof e !== 'string' && spots.push(i));
     const room = (i) => {
       let n = Infinity;
-      for (const j of spots) if (j !== i && Math.floor(j / perRow) === Math.floor(i / perRow)) n = Math.min(n, Math.abs(j - i));
-      return n * PITCH_X - 1.5;
+      for (const j of spots) if (j !== i && flowAt[j].row === flowAt[i].row) n = Math.min(n, Math.abs(flowAt[j].x - flowAt[i].x));
+      return n - 1.5;
     };
     list.forEach((e, i) => {
       if (typeof e === 'string') return;
@@ -1634,6 +1726,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
         c.fresh = true;
       }
       c.item = item;
+      c.thick = thickFor(item);
       return item.uri;
     });
     place();
@@ -1678,7 +1771,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       }
       if (hovered && hovered !== pulled) {
         const d = c.index - hovered.index;
-        const sameRow = Math.floor(c.index / perRow) === Math.floor(hovered.index / perRow);
+        const sameRow = c.row === hovered.row;
         if (c === hovered && zoom.z > 1.25) {
           // Zoomed in to read the spines: the case just nudges forward instead of swinging out at
           // the (now much closer) camera.
@@ -1846,9 +1939,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     // The rows in view (plus one either side) hold slots; everything else is released.
     const rowLo = clamp(Math.floor((-(lookY + seeHalf)) / ROW_PITCH) - 1, 0, Math.max(0, rowCount - 1));
     const rowHi = clamp(Math.ceil((-(lookY - seeHalf)) / ROW_PITCH) + 1, 0, Math.max(0, rowCount - 1));
-    const want = (rowHi - rowLo + 1) * perRow + 24;
+    const from = rowStart[Math.min(rowLo, rowStart.length - 1)] ?? 0;
+    const to = rowStart[Math.min(rowHi + 1, rowStart.length - 1)] ?? flow.length;
+    const want = to - from + 24;
     if (want > capacity && capacity < MAX_SLOTS) ensureCapacity(want);
-    for (let i = rowLo * perRow; i < Math.min(flow.length, (rowHi + 1) * perRow); i++) if (typeof flow[i] === 'string') acquire(cases.get(flow[i]));
+    for (let i = from; i < to; i++) if (typeof flow[i] === 'string') acquire(cases.get(flow[i]));
     for (const c of [hovered, pulled, spot]) if (c && !c.gone) acquire(c);
     // Layer writes for newly slotted cases, a few milliseconds' worth per frame.
     // More of it while the view is still (nothing to keep smooth), less while scrolling.
@@ -1866,7 +1961,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     for (let slot = 0; slot < slotOwner.length; slot++) {
       const c = slotOwner[slot];
       if (!c) continue;
-      const row = c.index >= 0 ? Math.floor(c.index / perRow) : -1;
+      const row = c.index >= 0 ? c.row : -1;
       const forced = c === hovered || c === pulled || c === spot || c.hold;
       if (c.gone && c.cur.s < 0.01) {
         release(c);
@@ -1923,7 +2018,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       wrote = true;
       const { x, y, z, ry, rz, s, lid } = c.cur;
       _q.setFromEuler(_e.set(0, ry, rz));
-      _m.compose(_p.set(x, y, z), _q, _s.setScalar(Math.max(0.001, s))).multiply(STAND);
+      _m.compose(_p.set(x, y, z), _q, _s.setScalar(Math.max(0.001, s))).multiply(STAND).multiply(THICK.get(c.thick) || THICK.get(1));
       _lid.copy(_m).multiply(hingeIn).multiply(_r.makeRotationY(-Math.max(0, lid))).multiply(hingeOut);
       posePool[c.slot].copy(_m);
       hitPool[c.slot].matrixWorld.copy(_m);
@@ -1951,7 +2046,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       const out = Math.max(0, Math.abs(z) - 10);
       const k = clamp(s, 0, 1) * clamp(1 - lift / 30, 0, 1) * clamp(1 - out / 70, 0, 1);
       const spread = 1 + lift / 50;
-      decalMatrix(_dm, _p.set(x, c.home.y - H / 2 - 0.15, z - (D + 16) / 2 + 3), X, Z, (W + 14) * spread, D + 16);
+      decalMatrix(_dm, _p.set(x, c.home.y - H / 2 - 0.15, z - (D + 16) / 2 + 3), X, Z, (W * c.thick + 14) * spread, D + 16);
       contacts.setMatrixAt(c.slot, k > 0.01 ? _dm : ZERO);
       contacts.setColorAt(c.slot, _k.setRGB(k, k, k));
     }
@@ -2176,22 +2271,37 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       return resetZoom();
     }
     if (pulled || !order.length) return;
-    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -perRow, ArrowDown: perRow, PageUp: -perRow * 3, PageDown: perRow * 3 }[e.key];
-    if (step !== undefined || e.key === 'Home' || e.key === 'End') {
+    // Left/right: the next case along; up/down (page: three rows): the case in that row nearest
+    // across; Home/End: the ends. Divider cards are stepped over.
+    const along = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    const rows = { ArrowUp: -1, ArrowDown: 1, PageUp: -3, PageDown: 3 }[e.key];
+    if (along !== undefined || rows !== undefined || e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
-      // Positions along the flow (so up/down is a row on screen), stepping over divider cards.
       const isCase = (i) => typeof flow[i] === 'string';
       const from = kbIndex >= 0 ? kbIndex : hovered && hovered.index >= 0 ? hovered.index : -1;
-      let i = e.key === 'Home' ? 0 : e.key === 'End' ? flow.length - 1 : from < 0 ? 0 : clamp(from + step, 0, flow.length - 1);
-      const dir = e.key === 'End' || (step !== undefined && step < 0) ? -1 : 1;
-      while (i >= 0 && i < flow.length && !isCase(i)) i += dir;
-      if (i < 0 || i >= flow.length) for (i = clamp(i, 0, flow.length - 1); i >= 0 && i < flow.length && !isCase(i); i -= dir);
+      let i = -1;
+      if (e.key === 'Home') for (i = 0; i < flow.length && !isCase(i); i++);
+      else if (e.key === 'End') for (i = flow.length - 1; i >= 0 && !isCase(i); i--);
+      else if (from < 0) for (i = 0; i < flow.length && !isCase(i); i++);
+      else if (along !== undefined) {
+        for (i = from + along; i >= 0 && i < flow.length && !isCase(i); i += along);
+        if (i < 0 || i >= flow.length) i = from;
+      } else {
+        const row = clamp(flowAt[from].row + rows, 0, rowCount - 1);
+        const x = flowAt[from].x;
+        let best = Infinity;
+        for (let j = rowStart[row]; j < rowStart[row + 1]; j++) {
+          const dx = Math.abs(flowAt[j].x - x);
+          if (isCase(j) && dx < best) (best = dx), (i = j);
+        }
+        if (i < 0) i = from;
+      }
       if (!isCase(i)) return;
       kbIndex = i;
       const c = cases.get(flow[kbIndex]);
       setHovered(c);
       // Keep the selected row in view.
-      const y = rowY(Math.floor(kbIndex / perRow));
+      const y = rowY(c.row);
       if (Math.abs(y - (cam.target + 10)) > view.visH * 0.3) cam.target = clamp(y + 10, bottomY(), topY());
       wake();
     } else if ((e.key === 'Enter' || e.key === ' ') && hovered && !hovered.gone) {
