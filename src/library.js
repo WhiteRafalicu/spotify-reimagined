@@ -214,26 +214,52 @@ export async function canvasFor(trackUri) {
   return url;
 }
 
+// GET from Spotify's internal API (spclient). Older clients route it through CosmosAsync; from
+// Spotify 1.3 that answers "Resolver not found", so after the first such failure it goes straight
+// to fetch() with the session's own token. Resolves the parsed JSON, or null for a 404.
+let cosmosRoute = true;
+async function spclientGet(path) {
+  const url = `https://spclient.wg.spotify.com/${path}`;
+  if (cosmosRoute) {
+    try {
+      return await Spicetify.CosmosAsync.get(url);
+    } catch (e) {
+      if (!/resolver not found/i.test(String(e?.message || e))) {
+        if (/\b404\b/.test(String(e?.message || e))) return null;
+        throw e;
+      }
+      cosmosRoute = false;
+    }
+  }
+  const token = Spicetify.Platform?.AuthorizationAPI?.getState?.()?.token?.accessToken;
+  const res = await fetch(url, { headers: { authorization: `Bearer ${token}`, 'app-platform': 'WebPlayer' } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`spclient ${res.status}`);
+  return res.json();
+}
+
 // Synced lyrics from Spotify's own lyrics service (what its Lyrics view uses). Returns
-// { synced, lines: [{ t: ms, text }] } or null when the track has none.
+// { synced, rtl, lang, lines: [{ t: ms, text }] }, or null when the track has none. A failed
+// request isn't remembered as "no lyrics", so the next try asks again.
 const lyricsCache = new Map();
 export async function lyricsFor(trackUri) {
   if (lyricsCache.has(trackUri)) return lyricsCache.get(trackUri);
   let out = null;
   try {
     const id = trackUri.split(':')[2];
-    const r = await Spicetify.CosmosAsync.get(
-      `https://spclient.wg.spotify.com/color-lyrics/v2/track/${id}?format=json&vocalRemoval=false&market=from_token`,
-    );
+    const r = await retry(() => spclientGet(`color-lyrics/v2/track/${id}?format=json&vocalRemoval=false&market=from_token`), 2, 600);
     const ly = r?.lyrics;
     if (ly?.lines?.length) {
       out = {
-        synced: ly.syncType === 'LINE_SYNCED',
+        synced: ly.syncType === 'LINE_SYNCED' || ly.syncType === 'SYLLABLE_SYNCED',
+        rtl: !!ly.isRtlLanguage,
+        lang: ly.language || '',
         lines: ly.lines.map((l) => ({ t: Number(l.startTimeMs) || 0, text: (l.words || '').trim() })),
       };
     }
-  } catch {
-    // 404 means the track simply has no lyrics.
+  } catch (e) {
+    console.warn('[cd-shelf] lyrics', e);
+    return null;
   }
   if (lyricsCache.size > 30) lyricsCache.delete(lyricsCache.keys().next().value);
   lyricsCache.set(trackUri, out);
