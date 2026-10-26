@@ -1,7 +1,7 @@
 import { t as tr } from './i18n';
-// The inside page of the booklet: a tracklist drawn on a 1024² canvas, and the same layout
-// read back to turn a click on the page into a track index. Up to 40 tracks fit on the page in
-// one or two columns; longer tracklists become a single column that scrolls.
+// The inside page of the booklet, drawn on a 1024² canvas, with three pages behind tabs at the foot:
+// the tracklist (its layout read back to turn a click into a track index; up to 40 tracks in one or
+// two columns, longer lists scroll), the liner notes, and the lyrics.
 
 const SIZE = 1024;
 const MARGIN = 78;
@@ -48,6 +48,148 @@ export function scrollToTrack(album, i) {
 
 const FONT = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
 
+// The page tabs at the foot, right-aligned: [Tracks] [Notes] [Lyrics].
+export const PAGES = ['tracks', 'notes', 'lyrics'];
+const TAB_Y = SIZE - 60;
+function tabBoxes(g) {
+  g.font = `700 22px ${FONT}`;
+  const boxes = [];
+  let x = SIZE - MARGIN;
+  for (let i = PAGES.length - 1; i >= 0; i--) {
+    const w = g.measureText(tr(`page_${PAGES[i]}`)).width + 28;
+    x -= w;
+    boxes.unshift({ i, x, w, y: TAB_Y - 22, h: 40 });
+    x -= 8;
+  }
+  return boxes;
+}
+const measurer = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+// Which tab (page index) a point on the page is on, or -1.
+export function tabAt(x, y) {
+  if (!measurer) return -1;
+  for (const b of tabBoxes(measurer)) if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return b.i;
+  return -1;
+}
+function drawTabs(g, current, hoverTab) {
+  for (const b of tabBoxes(g)) {
+    const on = b.i === current;
+    g.fillStyle = on ? 'rgba(255,255,255,0.92)' : b.i === hoverTab ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)';
+    g.beginPath();
+    g.roundRect(b.x, b.y, b.w, b.h, 20);
+    g.fill();
+    g.fillStyle = on ? '#111' : 'rgba(255,255,255,0.8)';
+    g.textAlign = 'center';
+    g.fillText(tr(`page_${PAGES[b.i]}`), b.x + b.w / 2, b.y + 28);
+  }
+  g.textAlign = 'left';
+}
+// Wraps text into lines no wider than `width`.
+function lines(g, text, width) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/).filter(Boolean)) {
+      const next = line ? `${line} ${word}` : word;
+      if (g.measureText(next).width > width && line) {
+        out.push(line);
+        line = word;
+      } else line = next;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function drawNotes(g, album) {
+  const n = album.notes;
+  let y = TOP + 30;
+  const label = (k, v) => {
+    if (!v) return;
+    g.font = `600 20px ${FONT}`;
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.fillText(k.toUpperCase(), MARGIN, y);
+    g.font = `500 28px ${FONT}`;
+    g.fillStyle = '#fff';
+    for (const l of lines(g, v, SIZE - MARGIN * 2).slice(0, 4)) {
+      y += 36;
+      g.fillText(l, MARGIN, y);
+    }
+    y += 44;
+  };
+  if (!n) {
+    g.font = `500 28px ${FONT}`;
+    g.fillStyle = 'rgba(255,255,255,0.5)';
+    g.fillText(album.notesFailed ? tr('notesNone') : tr('reading'), MARGIN, y);
+    return;
+  }
+  const total = (album.tracks || []).reduce((a, t) => a + (t.ms || 0), 0);
+  const count = album.tracks ? tr(album.tracks.length === 1 ? 'bookletOne' : 'booklet', { n: album.tracks.length, min: Math.round(total / 60000) }) : '';
+  if (album.kind === 'album') {
+    if (n.date) {
+      const d = new Date(n.date);
+      const opts = n.precision === 'YEAR' ? { year: 'numeric' } : n.precision === 'MONTH' ? { year: 'numeric', month: 'long' } : { year: 'numeric', month: 'long', day: 'numeric' };
+      label(tr('notesReleased'), new Intl.DateTimeFormat(undefined, opts).format(d));
+    }
+    label(tr('notesLabel'), n.label);
+    label(tr('notesLength'), [n.discs > 1 ? tr('notesDiscs', { n: n.discs }) : '', count].filter(Boolean).join(' · '));
+    if (n.artists.length > 1) label(tr('notesArtists'), n.artists.join(', '));
+    // The ℗ and © lines, small, at the foot of the notes, as on the back of a booklet.
+    g.font = `500 18px ${FONT}`;
+    g.fillStyle = 'rgba(255,255,255,0.5)';
+    let fy = Math.max(y, BOTTOM - 150);
+    for (const c of n.copyrights) {
+      const mark = c.type === 'P' ? '℗' : c.type === 'C' ? '©' : '';
+      for (const l of lines(g, c.text.startsWith(mark) ? c.text : `${mark} ${c.text}`, SIZE - MARGIN * 2).slice(0, 2)) {
+        if (fy > BOTTOM - 40) break;
+        g.fillText(l, MARGIN, fy);
+        fy += 24;
+      }
+      fy += 6;
+    }
+  } else {
+    label(tr('notesBy'), n.owner);
+    label(tr('notesLength'), count);
+    label(tr('notesAbout'), n.description);
+  }
+}
+
+function drawLyrics(g, album, page) {
+  const ly = page.lyrics;
+  g.font = `500 28px ${FONT}`;
+  g.fillStyle = 'rgba(255,255,255,0.5)';
+  if (ly === undefined) return g.fillText(tr('reading'), MARGIN, TOP + 30);
+  if (!ly?.lines?.length) return g.fillText(tr('noLyrics'), MARGIN, TOP + 30);
+  g.font = `600 20px ${FONT}`;
+  g.fillStyle = 'rgba(255,255,255,0.45)';
+  g.fillText((page.lyricsTrack || '').toUpperCase(), MARGIN, TOP + 4);
+  // As many columns and as small as it takes (down to 15 px) to fit; what's left over is cut.
+  const texts = ly.lines.map((l) => (l.text && l.text !== '♪' ? l.text : '♪'));
+  let size = 26;
+  let cols = 1;
+  for (;;) {
+    const per = Math.floor((BOTTOM - TOP - 40) / (size * 1.3));
+    if (texts.length <= per * cols || (cols === 2 && size <= 15)) break;
+    if (cols === 1 && size <= 20) {
+      cols = 2;
+      size = 24;
+    } else size -= 1;
+  }
+  const lineH = size * 1.3;
+  const per = Math.floor((BOTTOM - TOP - 40) / lineH);
+  const colW = (SIZE - MARGIN * 2 - 30 * (cols - 1)) / cols;
+  g.textAlign = ly.rtl ? 'right' : 'left';
+  texts.slice(0, per * cols).forEach((text, i) => {
+    const c = Math.floor(i / per);
+    const x = MARGIN + c * (colW + 30) + (ly.rtl ? colW : 0);
+    const y = TOP + 40 + (i % per) * lineH;
+    const now = i === page.lyricsLine;
+    g.font = `${now ? 700 : 500} ${size}px ${FONT}`;
+    g.fillStyle = now ? '#1ed760' : i < page.lyricsLine ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.85)';
+    g.fillText(fit(g, text, colW), x, y);
+  });
+  g.textAlign = 'left';
+}
+
 export function bookletLayout(album, scroll = 0) {
   const tracks = album.tracks || [];
   if (tracks.length > MAX_ROWS) return scrollingLayout(tracks, scroll);
@@ -84,7 +226,8 @@ function fit(g, text, width) {
   return text.slice(0, lo).trimEnd() + '…';
 }
 
-export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }) {
+export function drawBooklet(canvas, album, paper, pg) {
+  const { hover, playing, scroll = 0, index: pageIndex = 0, hoverTab = -1 } = pg;
   const g = canvas.getContext('2d');
   const [r, gr, b] = paper;
   const dark = (k) => `rgb(${Math.round(r * k)}, ${Math.round(gr * k)}, ${Math.round(b * k)})`;
@@ -118,12 +261,19 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   g.fillStyle = 'rgba(255,255,255,0.18)';
   g.fillRect(MARGIN, TOP - 18, SIZE - MARGIN * 2, 2);
 
+  if (pageIndex !== 0) {
+    if (pageIndex === 1) drawNotes(g, album);
+    else drawLyrics(g, album, pg);
+    drawTabs(g, pageIndex, hoverTab);
+    return;
+  }
   const lay = bookletLayout(album, scroll);
   if (!album.tracks) {
     g.fillStyle = 'rgba(255,255,255,0.5)';
     g.font = `500 28px ${FONT}`;
     g.fillText(album.tracksFailed ? tr('tracksFailed') : tr('reading'), MARGIN, TOP + 40);
     if (album.tracksFailed) g.fillText(tr('tracksFailedHint'), MARGIN, TOP + 84);
+    drawTabs(g, 0, hoverTab);
     return;
   }
 
@@ -201,6 +351,7 @@ export function drawBooklet(canvas, album, paper, { hover, playing, scroll = 0 }
   g.font = `500 22px ${FONT}`;
   g.fillStyle = 'rgba(255,255,255,0.45)';
   const total = album.tracks.reduce((a, t) => a + (t.ms || 0), 0);
-  const foot = tr('booklet', { n: album.tracks.length, min: Math.round(total / 60000) }) + (lay.scrollable ? tr('scrollMore') : '');
-  g.fillText(foot, MARGIN, SIZE - 46);
+  const foot = tr(album.tracks.length === 1 ? 'bookletOne' : 'booklet', { n: album.tracks.length, min: Math.round(total / 60000) }) + (lay.scrollable ? tr('scrollMore') : '');
+  g.fillText(fit(g, foot, SIZE - MARGIN * 2 - 330), MARGIN, SIZE - 46);
+  drawTabs(g, 0, hoverTab);
 }

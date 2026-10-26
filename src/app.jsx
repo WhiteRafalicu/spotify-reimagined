@@ -3,7 +3,7 @@ import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
 import { sections } from './sections';
 import { createStage } from './stage';
-import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
@@ -90,6 +90,8 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
         setFailed(true);
       },
       effects,
+      lyricsFor,
+      getProgress: () => Spicetify.Player.getProgress(),
     });
     // Never leave an invisible stage over the page: if the case can't be shown, go back to the shelf.
     const giveUp = setTimeout(() => {
@@ -99,6 +101,16 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
     }, 12000);
     stage.current = s;
     window.__cdStage = s; // handy from DevTools
+    retry(() => loadNotes(item), 2)
+      .then((notes) => {
+        album.notes = notes;
+        album.notesFailed = !notes;
+        s?.refresh?.({ keepPage: true });
+      })
+      .catch(() => {
+        album.notesFailed = true;
+        s?.refresh?.({ keepPage: true });
+      });
     retry(() => loadTracks(item))
       .then((tracks) => {
         album.tracks = tracks;

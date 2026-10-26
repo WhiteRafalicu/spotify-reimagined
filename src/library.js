@@ -134,6 +134,28 @@ export async function loadTracks(item) {
     }));
 }
 
+// The liner notes: for an album its release, label and copyright lines; for a playlist its
+// description and who made it. Null when there's nothing to say.
+export async function loadNotes(item) {
+  if (item.kind === 'album') {
+    const G = Spicetify.GraphQL;
+    const r = await G.Request(G.Definitions.getAlbum, { uri: item.uri, locale: '', offset: 0, limit: 1 });
+    const a = r?.data?.albumUnion;
+    if (!a) return null;
+    return {
+      date: a.date?.isoString || null,
+      precision: a.date?.precision || 'DAY',
+      label: a.label || '',
+      copyrights: (a.copyright?.items || []).map((c) => ({ type: c.type, text: c.text })),
+      discs: a.discs?.totalCount || 1,
+      artists: (a.artists?.items || []).map((x) => x.profile?.name).filter(Boolean),
+    };
+  }
+  const m = await Spicetify.Platform.PlaylistAPI.getMetadata(item.uri);
+  const strip = (h) => (h || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").trim();
+  return { description: strip(m?.description), owner: m?.owner?.displayName || m?.owner?.name || item.artist || '' };
+}
+
 export function nowPlaying() {
   const d = Spicetify.Player.data;
   return {

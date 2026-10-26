@@ -40,6 +40,7 @@ spicetify apply
 | Hover a spine | The case slides out and turns to show its cover |
 | Click a spine | Pull the case out and open it |
 | Click a track on the booklet | Play the album or playlist from that track (long lists scroll) |
+| **Tracks · Notes · Lyrics** at the foot of the booklet | Turn the page: liner notes (release, label, ℗/©; a playlist's description and maker) and the lyrics, lit line by line as it plays |
 | Click the disc | Play or pause (it spins while it plays) |
 | Drag the case | Turn it |
 | Click outside the case or press **Esc** | Put it back |

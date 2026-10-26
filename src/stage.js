@@ -22,7 +22,7 @@ import {
   SHEET_VERT,
   STREAK_FRAG,
 } from './shaders';
-import { bookletLayout, drawBooklet, scrollToTrack } from './booklet';
+import { bookletLayout, drawBooklet, scrollToTrack, tabAt } from './booklet';
 import { blankCoverFor, loadCover } from './cover';
 
 const FOV = 28;
@@ -216,7 +216,7 @@ function averageColor(bitmap) {
   return [r / n, gr / n, b / n];
 }
 
-export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {} }) {
+export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {}, lyricsFor, getProgress }) {
   // speed: how fast the case arrives, opens, closes and leaves (1 = normal).
   // glints: the star filter on bright highlights. sway: the case drifts gently and leans toward the
   // pointer; without it the case holds still, so its thin glass edges don't shimmer.
@@ -395,7 +395,33 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   pageTex.colorSpace = THREE.SRGBColorSpace;
   let paper = [24, 24, 24];
   // scroll eases toward target; wheeledAt pauses follow-the-playing-track while someone is scrolling.
-  const page = { hover: -1, playing: null, scroll: 0, target: 0, wheeledAt: -1e9 };
+  // index: the booklet page (tracks, notes, lyrics); hoverTab: the tab under the pointer; lyrics: the
+  // shown track's lyrics (undefined while loading), lyricsLine: the line being sung.
+  const page = { hover: -1, playing: null, scroll: 0, target: 0, wheeledAt: -1e9, index: 0, hoverTab: -1, lyrics: undefined, lyricsUri: null, lyricsTrack: '', lyricsLine: -1 };
+  // The lyrics page shows the playing track when it's on this album, else the first track.
+  function showLyrics() {
+    const tracks = album.tracks || [];
+    const t = tracks.find((x) => x.uri === page.playing) || tracks[0];
+    if (!t || t.uri === page.lyricsUri) return;
+    page.lyricsUri = t.uri;
+    page.lyricsTrack = t.name;
+    page.lyrics = undefined;
+    page.lyricsLine = -1;
+    redrawPage();
+    Promise.resolve(lyricsFor?.(t.uri))
+      .catch(() => null)
+      .then((ly) => {
+        if (page.lyricsUri !== t.uri || disposed) return;
+        page.lyrics = ly || null;
+        redrawPage();
+      });
+  }
+  function setPage(i) {
+    if (i === page.index) return;
+    page.index = i;
+    if (i === 2) showLyrics();
+    redrawPage();
+  }
   const redrawPage = () => {
     drawBooklet(pageCanvas, album, paper, page);
     pageTex.needsUpdate = true;
@@ -601,8 +627,13 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     if (st.phase === 'open') {
       const hit = castAt(x, y, [item.bookBack]);
       if (hit && hit.uv) {
-        const row = bookletLayout(album, page.scroll).rowAt(hit.uv.x * 1024, (1 - hit.uv.y) * 1024);
+        const px = hit.uv.x * 1024;
+        const py = (1 - hit.uv.y) * 1024;
+        const tab = tabAt(px, py);
+        if (tab >= 0) return { kind: 'tab', index: tab };
+        const row = page.index === 0 ? bookletLayout(album, page.scroll).rowAt(px, py) : -1;
         if (row >= 0) return { kind: 'track', index: row };
+        if (page.index === 2 && page.lyrics?.lines?.length) return { kind: 'page' };
       }
       const tray = castAt(x, y, [item.hitTray]);
       if (tray) {
@@ -626,8 +657,10 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     motion += (swayAmount() - motion) * (1 - Math.exp(-dt * 3));
     const hover = fx.sway && pointer.over && !grab.active && st.phase !== 'arrive';
     const k = 1 - Math.exp(-dt * 4);
-    lean.x += ((hover ? pointer.y * (st.open ? 0.08 : 0.22) : 0) - lean.x) * k;
-    lean.y += ((hover ? -pointer.x * (st.open ? 0.12 : 0.35) : 0) - lean.y) * k;
+    // Open, it holds still under the pointer: tabs and track rows are small, and leaning would slide
+    // them away before a click lands.
+    lean.x += ((hover && !st.open ? pointer.y * 0.22 : 0) - lean.x) * k;
+    lean.y += ((hover && !st.open ? -pointer.x * 0.35 : 0) - lean.y) * k;
     if (!grab.active) {
       grab.vx += (-GRAB_K * grab.x - GRAB_C * grab.vx) * dt;
       grab.vy += (-GRAB_K * grab.y - GRAB_C * grab.vy) * dt;
@@ -657,6 +690,23 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       return;
     }
 
+    // On the lyrics page, the line being sung lights up (and a new track brings its own lyrics).
+    if (page.index === 2) {
+      if (getPlaying() && getPlaying() !== page.lyricsUri && (album.tracks || []).some((x) => x.uri === getPlaying())) {
+        page.playing = getPlaying();
+        showLyrics();
+      }
+      const ly = page.lyrics;
+      if (ly?.synced && page.lyricsUri === getPlaying() && getProgress) {
+        const ms = getProgress();
+        let line = -1;
+        for (let k = 0; k < ly.lines.length && ly.lines[k].t <= ms; k++) line = k;
+        if (line !== page.lyricsLine) {
+          page.lyricsLine = line;
+          redrawPage();
+        }
+      }
+    }
     const playing = getPlaying();
     if (playing !== page.playing) {
       page.playing = playing;
@@ -841,8 +891,13 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       grab.moved = performance.now();
     } else {
       const hit = targetAt(pointer.x, pointer.y);
+      const tab = hit?.kind === 'tab' ? hit.index : -1;
+      if (tab !== page.hoverTab) {
+        page.hoverTab = tab;
+        redrawPage();
+      }
       setHover(hit?.kind === 'track' ? hit.index : -1);
-      container.style.cursor = hit ? 'pointer' : '';
+      container.style.cursor = hit && hit.kind !== 'page' ? 'pointer' : '';
     }
   };
   const onLeave = () => {
@@ -879,14 +934,17 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       return;
     }
     if (hit.kind === 'track') onPick?.(hit.index);
+    else if (hit.kind === 'tab') setPage(hit.index);
+    else if (hit.kind === 'page') return;
     else if (hit.kind === 'disc') onDisc?.();
-    else toggleOpen();
+    // A click while it's still opening (aimed at the booklet a moment early) doesn't shut it again.
+    else if (st.phase !== 'opening') toggleOpen();
   };
   // The wheel scrolls a long tracklist while the pointer is over the open booklet.
   const onWheel = (e) => {
     if (!item || st.phase !== 'open') return;
     const [x, y] = toNdc(e);
-    if (!castAt(x, y, [item.bookBack])) return;
+    if (!castAt(x, y, [item.bookBack]) || page.index !== 0) return;
     const lay = bookletLayout(album, page.target);
     if (!lay.scrollable) return;
     e.preventDefault();
@@ -962,7 +1020,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       return targetAt(...toNdc({ clientX, clientY }));
     },
     // Called when the tracklist arrives: open the page on whatever is playing.
-    refresh() {
+    refresh({ keepPage = false } = {}) {
+      if (keepPage) return redrawPage();
       page.playing = getPlaying();
       page.scroll = page.target = 0;
       followPlaying();
