@@ -218,6 +218,8 @@ export async function canvasFor(trackUri) {
 // Spotify 1.3 that answers "Resolver not found", so after the first such failure it goes straight
 // to fetch() with the session's own token. Resolves the parsed JSON, or null for a 404.
 let cosmosRoute = true;
+// For diagnostics: which way lyrics are fetched.
+export const lyricsRoute = () => (cosmosRoute ? 'CosmosAsync' : 'fetch + token');
 async function spclientGet(path) {
   const url = `https://spclient.wg.spotify.com/${path}`;
   if (cosmosRoute) {

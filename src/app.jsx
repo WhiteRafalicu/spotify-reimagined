@@ -1,7 +1,8 @@
 // CD Shelf: your Spotify library as a rack of jewel cases. Pull one out to open it and play.
+import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
 import { createStage } from './stage';
-import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
@@ -242,7 +243,7 @@ function Menu({ value, options, onChange, label, className = '' }) {
   );
 }
 
-function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
+function SettingsPanel({ settings, quality, setQuality, tier, onClose, onDiagnostics }) {
   const set = (k, v) => setSettings({ [k]: v });
   const toggle = (k, label, hint) => (
     <label key={k} className="cds-toggle">
@@ -320,6 +321,15 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
             ]}
           />
         </div>
+        <div className="cds-toggle">
+          <span>
+            {t('diag')}
+            <small>{t('diagHint')}</small>
+          </span>
+          <button type="button" className="cds-chip" onClick={onDiagnostics}>
+            {t('diagCopy')}
+          </button>
+        </div>
       </div>
       <div className="cds-settings-foot">
         <button
@@ -376,6 +386,8 @@ function App() {
   const [failed, setFailed] = useState(false);
   const [host, setHost] = useState(null);
   const [notice, setNotice] = useState(null);
+  // A diagnostics report the clipboard refused, shown so it can be copied by hand.
+  const [diagText, setDiagText] = useState(null);
   const [quality, setQuality] = useState(() => {
     try {
       return localStorage.getItem('cd-shelf:quality') || 'auto';
@@ -627,8 +639,21 @@ function App() {
         </div>
       </header>
       {showSettings && (
-        <SettingsPanel settings={settings} quality={quality} setQuality={setQuality} tier={tier} onClose={() => setShowSettings(false)} />
+        <SettingsPanel
+          settings={settings}
+          quality={quality}
+          setQuality={setQuality}
+          tier={tier}
+          onClose={() => setShowSettings(false)}
+          onDiagnostics={async () => {
+            const { ok, report } = await copyDiagnostics({ shelf: shelf.current, settings, quality, items, lyricsRoute: lyricsRoute() });
+            if (!ok) return setDiagText(report);
+            setNotice({ name: t('diagCopied'), artist: t('diagCopiedHint') });
+            setTimeout(() => setNotice(null), 5000);
+          }}
+        />
       )}
+      {diagText && <DiagnosticsBox text={diagText} onClose={() => setDiagText(null)} />}
       <div id="cds-caption" aria-live="polite" className={`cds-caption${hover || notice ? ' is-on' : ''}`}>
         {(hover || notice) && (
           <>
@@ -667,6 +692,27 @@ function App() {
   );
 }
 
+// When the clipboard can't be used: the report in a box, selected, ready for Ctrl+C.
+function DiagnosticsBox({ text, onClose }) {
+  const area = useRef(null);
+  useEffect(() => {
+    area.current?.focus();
+    area.current?.select();
+  }, []);
+  return (
+    <div className="cds-diag" role="dialog" aria-label={t('diag')}>
+      <div className="cds-settings-head">
+        <b>{t('diag')}</b>
+        <button className="cds-chip" onClick={onClose} aria-label={t('closeSettings')}>
+          ✕
+        </button>
+      </div>
+      <p className="cds-settings-note">{t('diagManual')}</p>
+      <textarea ref={area} readOnly value={text} onKeyDown={(e) => e.key === 'Escape' && onClose()} />
+    </div>
+  );
+}
+
 // If anything in the shelf throws while rendering, show a way out instead of a blank page.
 class Guard extends Spicetify.React.Component {
   constructor(props) {
@@ -692,8 +738,18 @@ class Guard extends Spicetify.React.Component {
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             {t('spotifyHome')}
           </button>
+          <button
+            className="cds-chip"
+            onClick={async () => {
+              const { ok, report } = await copyDiagnostics({ shelf: window.__cdShelf, settings: getSettings(), lyricsRoute: lyricsRoute() });
+              this.setState({ diag: ok ? null : report, copied: ok });
+            }}
+          >
+            {this.state.copied ? t('diagCopied') : t('diagCopy')}
+          </button>
         </div>
         <p className="cds-settings-note">{t('crashNote')}</p>
+        {this.state.diag && <DiagnosticsBox text={this.state.diag} onClose={() => this.setState({ diag: null })} />}
       </div>
     );
   }

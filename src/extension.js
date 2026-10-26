@@ -1,6 +1,7 @@
 // CD Shelf's companion extension, loaded on every page: the shelf becomes Spotify's home, and the
 // now-playing cover in the player bar becomes a disc that spins while music plays. Clicking the
 // disc opens its jewel case on the shelf (shift-click keeps Spotify's own behaviour).
+import './diagnostics';
 import css from './extension.css';
 import { getSettings, onSettings } from './settings';
 

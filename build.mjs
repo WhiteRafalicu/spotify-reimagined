@@ -1,6 +1,13 @@
 // Bundles the custom app into the shape Spicetify loads: a global plus `render()`.
 import * as esbuild from 'esbuild';
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+
+// The version shown in diagnostics: package.json's, plus the commit when built from git.
+let version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+try {
+  version += `+${execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()}`;
+} catch {}
 
 const opts = {
   entryPoints: ['src/app.jsx'],
@@ -12,6 +19,7 @@ const opts = {
   target: 'chrome120',
   jsxFactory: 'Spicetify.React.createElement',
   jsxFragment: 'Spicetify.React.Fragment',
+  define: { __CDS_VERSION__: JSON.stringify(version) },
   loader: { '.css': 'text', '.glb': 'dataurl', '.ttf': 'dataurl', '.woff2': 'dataurl' },
   footer: { js: 'const render=()=>cdshelf.default();' },
   logLevel: 'info',

@@ -9,20 +9,22 @@ body:
       description: What you did, what you expected, and what you saw instead.
     validations:
       required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: On the shelf, Settings → General → Diagnostics → Copy, then paste here. It covers your Spotify, Spicetify, GPU, quality and recent errors, so most fields below can stay empty. (If the shelf crashed, the error screen has the same button.)
+      render: text
   - type: input
     id: spotify
     attributes:
       label: Spotify version
-      description: Spotify menu → Help → About Spotify (for example 1.2.96.518).
-    validations:
-      required: true
+      description: Only if you couldn't paste diagnostics. Spotify menu → Help → About Spotify (for example 1.3.4.258).
   - type: input
     id: spicetify
     attributes:
       label: Spicetify version
-      description: Run `spicetify -v`.
-    validations:
-      required: true
+      description: Only if you couldn't paste diagnostics. Run `spicetify -v`.
   - type: dropdown
     id: os
     attributes:

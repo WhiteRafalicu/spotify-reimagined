@@ -456,3 +456,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.cds-diag {
+  position: absolute;
+  z-index: 40;
+  inset: 80px 24px auto auto;
+  width: min(560px, calc(100% - 48px));
+  padding: 16px 18px;
+  border-radius: 12px;
+  color: #fff;
+  background: rgba(24, 22, 20, 0.97);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+.cds-diag textarea {
+  width: 100%;
+  height: min(52vh, 420px);
+  margin-top: 8px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  resize: vertical;
+  color: #d8f5dc;
+  background: #0f0f10;
+  font: 12px/1.45 ui-monospace, Consolas, monospace;
+}
