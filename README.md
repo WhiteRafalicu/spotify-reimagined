@@ -43,7 +43,9 @@ spicetify apply
 | Click the disc | Play or pause (it spins while it plays) |
 | Drag the case | Turn it |
 | Click outside the case or press **Esc** | Put it back |
-| Click the TV | Play or pause |
+| Hover the TV | Its screen shows controls: previous, play/pause, next and a seek bar |
+| Click a control on the TV / elsewhere on the TV | Do that / play or pause |
+| **Ctrl** + scroll (or pinch) | Zoom in where the pointer is, to read the spines; **Esc** zooms back out |
 | Arrow keys / Page Up / Page Down / Home / End | Move between discs (click the shelf first) |
 | **Enter** or **Space** | Open the selected disc |
 
@@ -54,14 +56,18 @@ spicetify apply
 - **The player bar's cover is a spinning CD.** Click it to open that album's case.
 - **The TV corner.** The TV mirrors the Canvas video Spotify shows in its Now Playing sidebar (keep
   the sidebar open for it), or the cover art, music-channel style, through a CRT effect. The
-  whiteboard shows Spotify's synced lyrics.
+  whiteboard shows Spotify's synced lyrics, in any language (right-to-left ones from the right).
 - **Small libraries work too:** a shelf with only a few saved albums is topped up with recently
   played ones (marked as not saved), and there are always at least three rows of boards.
 - **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
 - **Settings** in the header: switch off any of it (the shelf as Home, the hidden sidebar, the
-  spinning CD, the TV corner, the dust), pick a **look** (Walnut art deco, bright Birch, black
-  Minimal), a **language** and a quality level, or press **Back to classic Spotify** to undo every
-  change to Spotify's own interface in one click. The shelf stays one click away.
+  spinning CD, the TV corner), make the cases bigger (**Shelf size**), pick a **look** (Walnut art
+  deco, bright Birch, black Minimal), a **wall colour** and the **case glass** (clear, classic,
+  smoky, blue), how fast cases move (**Animation speed**), whether the camera and cases **sway**,
+  a spotlight follows the pointer, the opened case **glints** and dust drifts in the light, whether
+  the whiteboard writes lyrics out or shows **whole lines**, a **language** and a quality level. Or
+  press **Back to classic Spotify** to undo every change to Spotify's own interface in one click.
+  The shelf stays one click away.
 - **Languages:** English, Română, Español, Deutsch, Français and Português, following Spotify's own
   language unless you pick one. To add one, copy the `en` block in `src/i18n.js` and translate it.
 - **Quality**, also in Settings: Auto picks a level for your GPU, and the resolution adapts to keep it
@@ -78,6 +84,10 @@ Found a bug? [Open an issue](https://github.com/WhiteRafalicu/spotify-reimagined
   GPU process and disable WebGL. Start Spotify with `--disable-accelerated-video-decode` (on Arch,
   put it in `~/.config/spotify-flags.conf`).
 - **Slow:** pick Quality: Low in the header.
+- **The glass shimmers or flickers when the pointer moves:** turn off **Sway** (and **Spotlight
+  follows the pointer**, **Star glints**) in Settings, Motion & light.
+- **"WebGL is unavailable" on Linux with Spotify 1.3 or later under Wayland:** add
+  `--ozone-platform=wayland` to Spotify's flags (on Arch, `~/.config/spotify-flags.conf`).
 
 ## Build from source
 
