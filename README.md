@@ -85,6 +85,9 @@ Found a bug? [Open an issue](https://github.com/WhiteRafalicu/spotify-reimagined
 
 - **Nothing changed after installing:** run `spicetify apply` again. After Spotify updates itself,
   run `spicetify backup apply`.
+- **Something stopped working after a Spotify update:** Settings → General → Diagnostics → Copy and
+  paste it into an issue. Developers can run `node tools/smoke.mjs` (Spotify started with
+  `--remote-debugging-port=9222`): a read-only check of every Spotify API the shelf uses.
 - **"WebGL is unavailable":** on Linux with an NVIDIA GPU, hardware video decode can crash Spotify's
   GPU process and disable WebGL. Start Spotify with `--disable-accelerated-video-decode` (on Arch,
   put it in `~/.config/spotify-flags.conf`).
@@ -114,6 +117,7 @@ node tools/cdp.mjs eval 'return Spicetify.Player.data.item.name'
 node tools/cdp.mjs shot out.png
 ```
 
+- After a Spotify or Spicetify update, `node tools/smoke.mjs` checks every API the shelf relies on (library, GraphQL album/notes/canvas, playlists, lyrics route, covers, player surface, the extension) without playing or changing anything; it exits non-zero on a failure.
 - `src/app.jsx` is the header, the stage overlay and the player wiring.
 - `src/shelf3d.js` is the three.js shelf room (springs, lights, dust, raycast hover). Every case on the shelf is the real cd-case tray and lid (a shelf build of 9k triangles; hovered and pulled cases use the full 40k build), instanced and drawn with the original rod and sheet glass shaders over each case's booklet, spine strip and printed disc. It renders in passes: opaque room, then glass refracting a copy of it, then dust, then tone mapping with a light vignette.
 - Lighting lives in one `LIGHT` block in `src/shelf3d.js`: a warm-neutral directional key (the only shadow caster; 2048 map, PCF radius 9, its camera fitted to the unit and snapped to texels as you scroll), a weak cool fill, and hemisphere plus room-environment ambient. Contact shadows under every case and the creases where boards meet the sides and back are instanced multiply decals (two draws in all). The back panel carries baked compartment occlusion as an `aoMap`. The walnut is procedural: colour and roughness maps, rounded boards, clearcoat.
