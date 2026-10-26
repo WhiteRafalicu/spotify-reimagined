@@ -62,6 +62,7 @@ spicetify apply
   whiteboard shows Spotify's synced lyrics, in any language (right-to-left ones from the right).
 - **Small libraries work too:** a shelf with only a few saved albums is topped up with recently
   played ones (marked as not saved), and there are always at least three rows of boards.
+- **Shelfie** (📷 in the header): a high-resolution picture of the shelf as you've framed it (scroll, or Ctrl + scroll to zoom), captioned with your name and disc count, to copy or save.
 - **Search, filter and sort** in the header. Playlists without a cover become hand-labelled CD-Rs.
 - **Settings** in the header: switch off any of it (the shelf as Home, the hidden sidebar, the
   spinning CD, the TV corner), make the cases bigger (**Shelf size**), pick a **look** (Walnut art

@@ -398,6 +398,16 @@ function App() {
   const lidPaused = useRef(false);
   // A diagnostics report the clipboard refused, shown so it can be copied by hand.
   const [diagText, setDiagText] = useState(null);
+  const [shelfie, setShelfie] = useState(null); // the PNG blob being shown
+  const takeShelfie = async () => {
+    const bmp = await shelf.current?.shelfie();
+    if (!bmp) return;
+    let user = null;
+    try {
+      user = (await Spicetify.Platform?.UserAPI?.getUser?.())?.displayName || null;
+    } catch {}
+    setShelfie(await composeShelfie(bmp, { count: shelved.items.length, user }));
+  };
   const [quality, setQuality] = useState(() => {
     try {
       return localStorage.getItem('cd-shelf:quality') || 'auto';
@@ -675,6 +685,9 @@ function App() {
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             {t('spotifyHome')}
           </button>
+          <button className="cds-chip" onClick={takeShelfie} aria-label={t('shelfie')} title={t('shelfie')}>
+            📷
+          </button>
           <button className={`cds-chip${showSettings ? ' is-on' : ''}`} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
             {t('settings')}
           </button>
@@ -696,6 +709,7 @@ function App() {
         />
       )}
       {diagText && <DiagnosticsBox text={diagText} onClose={() => setDiagText(null)} />}
+      {shelfie && <ShelfieBox blob={shelfie} onClose={() => setShelfie(null)} />}
       <div id="cds-caption" aria-live="polite" className={`cds-caption${hover || notice ? ' is-on' : ''}`}>
         {(hover || notice) && (
           <>
@@ -740,6 +754,76 @@ function App() {
           }}
           effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1, glass: GLASS[settings.glass] || GLASS.classic }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
+    </div>
+  );
+}
+
+// The shelfie: the render, with a caption strip under it.
+async function composeShelfie(bitmap, { count, user }) {
+  const W = bitmap.width;
+  const strip = Math.round(W * 0.055);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = bitmap.height + strip;
+  const g = c.getContext('2d');
+  g.drawImage(bitmap, 0, 0);
+  g.fillStyle = '#121110';
+  g.fillRect(0, bitmap.height, W, strip);
+  const pad = strip * 0.45;
+  g.textBaseline = 'middle';
+  g.fillStyle = '#f2ece2';
+  g.font = `${Math.round(strip * 0.5)}px "CDS Permanent Marker", "Permanent Marker", "Comic Sans MS", cursive`;
+  const title = user ? t('shelfieTitleOf', { user }) : t('shelfieTitle');
+  g.fillText(title, pad, bitmap.height + strip / 2);
+  const tw = g.measureText(title).width;
+  g.fillStyle = 'rgba(242,236,226,0.6)';
+  g.font = `600 ${Math.round(strip * 0.3)}px "SpotifyMixUI", "CircularSp", Arial, sans-serif`;
+  g.fillText(t('discsCount', { n: count }), pad * 2 + tw, bitmap.height + strip / 2 + strip * 0.04);
+  g.textAlign = 'right';
+  g.fillStyle = 'rgba(242,236,226,0.4)';
+  g.fillText('spotify-reimagined', W - pad, bitmap.height + strip / 2 + strip * 0.04);
+  return new Promise((r) => c.toBlob(r, 'image/png'));
+}
+
+function ShelfieBox({ blob, onClose }) {
+  const url = useMemo(() => URL.createObjectURL(blob), [blob]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const [done, setDone] = useState('');
+  const copy = async () => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      setDone(t('shelfieCopied'));
+    } catch {
+      setDone(t('shelfieCopyFailed'));
+    }
+  };
+  const save = () => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cd-shelf-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setDone(t('shelfieSaved'));
+  };
+  return (
+    <div className="cds-diag cds-shelfie" role="dialog" aria-label={t('shelfie')} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="cds-settings-head">
+        <b>{t('shelfie')}</b>
+        <button className="cds-chip" onClick={onClose} aria-label={t('closeSettings')}>
+          ✕
+        </button>
+      </div>
+      <img src={url} alt={t('shelfie')} />
+      <div className="cds-tools">
+        <button className="cds-chip is-play" onClick={copy} autoFocus>
+          {t('shelfieCopy')}
+        </button>
+        <button className="cds-chip" onClick={save}>
+          {t('shelfieSave')}
+        </button>
+        {done && <span className="cds-settings-note">{done}</span>}
+      </div>
     </div>
   );
 }

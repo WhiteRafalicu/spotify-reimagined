@@ -1416,7 +1416,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     const h = container.clientHeight || 1;
     // Never render more than MAX_PIXELS, whatever the screen density, quality or debug setting asks:
     // past that, the HDR + MSAA buffers alone can exhaust a laptop's memory.
-    const maxRatio = Math.sqrt(MAX_PIXELS / (w * h));
+    const maxRatio = Math.sqrt(pixelCap / (w * h));
     if (renderer.getPixelRatio() > maxRatio) renderer.setPixelRatio(maxRatio);
     renderer.setSize(w, h, false);
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -1456,6 +1456,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     return a > b ? clamp((a - y) / (a - b), 0, 1) : 0;
   };
   let dollyF = 0;
+  // The render-size ceiling (raised for one frame by shelfie()).
+  let pixelCap = MAX_PIXELS;
   let shadowCenter = null;
   let shadowStale = false;
   let shadowAt = 0;
@@ -2469,6 +2471,29 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     },
     get hasConsole() {
       return !!corner?.hasConsole;
+    },
+    // A still of the shelf as it's framed now, rendered at up to twice the usual pixel ceiling, for
+    // sharing. Resolves an ImageBitmap (the caller adds the caption) or null.
+    async shelfie() {
+      if (lost || detached) return null;
+      const before = renderer.getPixelRatio();
+      try {
+        pixelCap = MAX_PIXELS * 2;
+        renderer.setPixelRatio(Math.min(Math.sqrt(pixelCap / (view.w * view.h)), 3));
+        layout();
+        shadowDirty = true;
+        renderer.shadowMap.needsUpdate = true;
+        step(1 / 60);
+        return await createImageBitmap(renderer.domElement);
+      } catch (e) {
+        console.warn('[cd-shelf] shelfie', e);
+        return null;
+      } finally {
+        pixelCap = MAX_PIXELS;
+        renderer.setPixelRatio(before);
+        layout();
+        wake();
+      }
     },
     // Debug: where a point in the TV model's coordinates shows on screen (CSS px).
     tvToScreen(x, y, z) {
