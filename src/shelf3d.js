@@ -1321,6 +1321,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   let busy = true;
   let activeAt = performance.now();
   const wake = () => (activeAt = performance.now());
+  let sharp = false; // the frame on screen was drawn at full resolution (see tick)
   let disposed = false;
   let raf = 0;
   let last = 0;
@@ -1473,6 +1474,16 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const spineCtx = spineScratch.getContext('2d', { willReadFrequently: true });
   const blankCover = new Uint8ClampedArray(COVER_PX * COVER_PX * 4).fill(40);
 
+  // The canvas and the render targets at the renderer's pixel ratio (within the pixel ceiling).
+  function resizeBuffers(w = view.w, h = view.h) {
+    const maxRatio = Math.sqrt(pixelCap / (w * h));
+    if (renderer.getPixelRatio() > maxRatio) renderer.setPixelRatio(maxRatio);
+    renderer.setSize(w, h, false);
+    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    rtMain.setSize(size.x, size.y);
+    rtBehind.setSize(size.x, size.y);
+  }
+
   function layout() {
     wake();
     // Keep the view where it was relative to the shelf: at the top stays at the top, otherwise the
@@ -1482,12 +1493,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     const h = container.clientHeight || 1;
     // Never render more than MAX_PIXELS, whatever the screen density, quality or debug setting asks:
     // past that, the HDR + MSAA buffers alone can exhaust a laptop's memory.
-    const maxRatio = Math.sqrt(pixelCap / (w * h));
-    if (renderer.getPixelRatio() > maxRatio) renderer.setPixelRatio(maxRatio);
-    renderer.setSize(w, h, false);
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    rtMain.setSize(size.x, size.y);
-    rtBehind.setSize(size.x, size.y);
+    resizeBuffers(w, h);
     camera.aspect = w / h;
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     // Shelf size: a bigger size means taller rows on screen, so fewer rows and fewer cases per row.
@@ -2426,6 +2432,34 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     // Idle: 30 fps (15 unfocused) for a few seconds; then, unless the TV is on screen, nothing at
     // all until something wakes it (input, a track change, a cover arriving, a resize).
     const idleFor = now - activeAt;
+    // Sharp when still: the adaptive render scale keeps motion smooth on a slow GPU, but text on the
+    // spines needs every pixel. Once the scene has settled, one frame is drawn at full resolution
+    // and kept on screen (nothing changes, so nothing else is drawn); the next movement goes back
+    // to the adaptive scale. Not while the TV corner animates on its own.
+    const still = !busy && !dbg.busy && idleFor > 400 && !layerQueue.length && !cornerAlive;
+    if (sharp && !still) {
+      sharp = false;
+      renderer.setPixelRatio(basePixelRatio() * scale);
+      resizeBuffers();
+    } else if (still && sharp) {
+      last = 0;
+      return;
+    } else if (still && scale < 1 && renderer.getPixelRatio() < basePixelRatio() - 1e-3) {
+      sharp = true;
+      renderer.setPixelRatio(basePixelRatio());
+      resizeBuffers();
+      shadowDirty = true;
+      step(1 / 60);
+      // Not a sample for the adaptive scale: it's meant to be slower.
+      if (adapt.open) {
+        const gl = renderer.getContext();
+        gl.endQuery(adapt.ext.TIME_ELAPSED_EXT);
+        gl.deleteQuery(adapt.open);
+        adapt.open = null;
+      }
+      last = 0;
+      return;
+    }
     if (!busy && !dbg.busy && idleFor > 1500) {
       if (idleFor > 5000 && !cornerAlive && !layerQueue.length) {
         last = 0;
