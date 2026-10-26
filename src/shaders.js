@@ -702,6 +702,8 @@ export const CRT_FRAG = `
   uniform float uBright;
   uniform float uPower;    // 0 = off (dark glass), 1 = on
   uniform float uMotion;   // 0 with reduce motion: no flicker or rolling bar
+  uniform vec4 uAdjust;    // the front panel: brightness, contrast, chroma, phase (hue, radians)
+  uniform float uAperture; // the front panel: scanline depth, 1 = as built
   varying vec2 vUv;
   varying vec3 vP;
   varying vec3 vN;
@@ -724,8 +726,16 @@ export const CRT_FRAG = `
     // Slight convergence error: red and blue land a hair either side of green.
     vec2 off = vec2(0.0016, 0.0);
     vec3 img = vec3(picture(uv + off).r, picture(uv).g, picture(uv - off).b);
+    // The knobs: contrast about mid grey, brightness on top, chroma toward grey, phase turns the hue
+    // (a rotation in YIQ, as a PVM's phase control does).
+    img = (img - 0.5) * uAdjust.y + 0.5 + uAdjust.x;
+    vec3 yiq = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312) * img;
+    float ch = cos(uAdjust.w);
+    float sh = sin(uAdjust.w);
+    yiq.yz = mat2(ch, sh, -sh, ch) * yiq.yz * uAdjust.z;
+    img = max(mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703) * yiq, 0.0);
 
-    float lines = 0.72 + 0.28 * pow(0.5 + 0.5 * cos(uv.y * 240.0 * 6.2831853), 1.4);
+    float lines = (1.0 - 0.28 * uAperture) + 0.28 * uAperture * pow(0.5 + 0.5 * cos(uv.y * 240.0 * 6.2831853), 1.4);
     float px = uv.x * 320.0 * 3.0;
     vec3 mask = vec3(
       0.82 + 0.18 * step(mod(px, 3.0), 1.0),

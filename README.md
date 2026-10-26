@@ -46,6 +46,7 @@ spicetify apply
 | Hover the TV | Its screen shows controls: previous, play/pause, next and a seek bar |
 | **Play in the console** (on an open case) | The camera glides to the TV corner and the disc goes into the PlayStation, which then plays it |
 | Click the PlayStation | Open its lid to see the disc (pauses the music); click again to close it and play on |
+| The monitor's front panel | **VOL ±** sets Spotify's volume; **BRIGHT, CONTRAST, CHROMA, PHASE, APERTURE ±** adjust the picture (kept between sessions, **RESET** undoes them); **POWER** turns the picture off and on |
 | Click a control on the TV / elsewhere on the TV | Do that / play or pause |
 | **Ctrl** + scroll (or pinch) | Zoom in where the pointer is, to read the spines; **Esc** zooms back out |
 | Arrow keys / Page Up / Page Down / Home / End | Move between discs (click the shelf first) |

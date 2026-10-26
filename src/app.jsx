@@ -470,6 +470,11 @@ function App() {
       onPick: (item) => pull(item),
       onHover: setHover,
       // The TV's on-screen controls (see corner.js tvZone).
+      // The monitor's VOL buttons work Spotify's volume.
+      volume: {
+        get: () => Spicetify.Player.getVolume(),
+        set: (v) => Spicetify.Player.setVolume(v),
+      },
       // The PlayStation's lid: open pauses, closing plays on (only if it was playing).
       onLid: (open) => {
         const P = Spicetify.Player;

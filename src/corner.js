@@ -143,6 +143,38 @@ export function tvZone(x, y) {
   if (y >= CONTROLS.rowTop && y <= CONTROLS.rowBottom) return { zone: x < 0.36 ? 'prev' : x > 0.64 ? 'next' : 'play' };
   return { zone: 'play' };
 }
+// The monitor's front panel, in the model's own coordinates (measured on the PVM-1341 model): six
+// rocker columns, + on top and - below, then POWER; RESET left of the rockers.
+const ROCKERS = [
+  ['aperture', 0.0726],
+  ['bright', 0.0574],
+  ['chroma', 0.0419],
+  ['phase', 0.0267],
+  ['contrast', 0.0114],
+  ['vol', -0.0043],
+];
+function panelAt(p) {
+  if (p.z > -0.07) return null; // not the panel's face
+  if (p.x > -0.031 && p.x < -0.019 && p.y > 0.018 && p.y < 0.032) return 'power';
+  if (Math.abs(p.x - 0.0883) < 0.0065 && Math.abs(p.y - 0.0258) < 0.0075) return 'reset';
+  for (const [id, x] of ROCKERS) {
+    if (Math.abs(p.x - x) > 0.0062) continue;
+    if (p.y > 0.0335 && p.y < 0.049) return `${id}+`;
+    if (p.y > 0.017 && p.y <= 0.0335) return `${id}-`;
+  }
+  return null;
+}
+// What each knob does to the picture: [step, min, max, default]; kept between sessions.
+const PICTURE = { bright: [0.03, -0.18, 0.18, 0], contrast: [0.1, 0.5, 1.6, 1], chroma: [0.15, 0, 2, 1], phase: [0.12, -0.9, 0.9, 0], aperture: [0.25, 0, 2, 1] };
+const PICTURE_KEY = 'cd-shelf:crt';
+function loadPicture() {
+  const out = Object.fromEntries(Object.entries(PICTURE).map(([k, v]) => [k, v[3]]));
+  try {
+    Object.assign(out, JSON.parse(localStorage.getItem(PICTURE_KEY) || '{}'));
+  } catch {}
+  return out;
+}
+
 // The screen's UV (as the ray hit it) to where that point shows on the OSD: the CRT shader bends
 // the picture (barrel distortion) before sampling, so the same bend applies here. OSD y runs down.
 function osdPoint(uv) {
@@ -156,7 +188,7 @@ const mmss = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-function drawOsd(canvas, { name, artist, paused, channel, controls }) {
+function drawOsd(canvas, { name, artist, paused, channel, controls, bar }) {
   const g = canvas.getContext('2d');
   const W = canvas.width;
   const H = canvas.height;
@@ -176,6 +208,19 @@ function drawOsd(canvas, { name, artist, paused, channel, controls }) {
     const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
     text(clip(name.toUpperCase(), 26), 34, H - 84, '#ffffff');
     text(clip(artist || '', 30), 34, H - 52);
+  }
+  // A PVM-style level bar for the knob just pressed: the name, then sixteen segments.
+  if (bar) {
+    g.font = '700 30px "VT323", "Courier New", monospace';
+    text(bar.label, 34, 74, '#ffffff');
+    const n = 16;
+    const lit = Math.round(bar.value * n);
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = 'rgba(0,0,0,0.6)';
+      g.fillRect(36 + i * 18, 114, 14, 22);
+      g.fillStyle = i < lit ? '#7cff8a' : 'rgba(124,255,138,0.22)';
+      g.fillRect(34 + i * 18, 112, 14, 22);
+    }
   }
   if (!controls) return;
   // A dim band behind the controls so they read over any picture.
@@ -348,6 +393,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
         uTime: { value: 0 },
         uStatic: { value: 1 },
         uOsdAlpha: { value: 1 },
+        uAdjust: { value: new THREE.Vector4(0, 1, 1, 0) },
+        uAperture: { value: 1 },
         uBright: { value: 2.2 },
         uPower: { value: 0 },
         uMotion: { value: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 },
@@ -365,6 +412,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   group.add(bias);
 
   let tv = null;
+  let tvRoot = null; // the model's own root (its coordinates are the glTF file's)
   let screenMesh = null;
   let tvSet = false;
   // The TV sits a little left of centre on the table (room for the PS2 beside it); a whole set is
@@ -414,6 +462,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       group.add(tv);
       pickables.push(...collect(tv));
       setupConsole(root);
+      tvRoot = root;
       arrange();
       if (placed) place(...placed);
       reveal(tv, glow);
@@ -758,6 +807,52 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let boardX = BOARD_X;
 
   // ---- What's on: Canvas video when the track has one, else the album art panning slowly. ----
+  // The front panel: picture settings, the level bar showing, and the power switch.
+  const pic = loadPicture();
+  let bar = null; // { label, value, until }
+  let userOff = false;
+  function applyPicture() {
+    crt.uniforms.uAdjust.value.set(pic.bright, pic.contrast, pic.chroma, pic.phase);
+    crt.uniforms.uAperture.value = pic.aperture;
+  }
+  function showBar(label, value) {
+    bar = { label, value: Math.min(1, Math.max(0, value)), until: t + 2.2 };
+    redrawOsd();
+    onChange?.();
+  }
+  // Press a panel control. Volume is the player's: `volume` reads and sets it (0..1).
+  function press(control, volume) {
+    if (control === 'power') {
+      userOff = !userOff;
+      if (!userOff) screen.staticUntil = t + 0.35;
+      onChange?.();
+      return;
+    }
+    if (control === 'reset') {
+      for (const [k, v] of Object.entries(PICTURE)) pic[k] = v[3];
+      applyPicture();
+      try {
+        localStorage.removeItem(PICTURE_KEY);
+      } catch {}
+      showBar(tr('panelReset'), 0.5);
+      return;
+    }
+    const id = control.slice(0, -1);
+    const dir = control.endsWith('+') ? 1 : -1;
+    if (id === 'vol') {
+      const v = Math.min(1, Math.max(0, Math.round(((volume?.get() ?? 0.5) + dir * 0.1) * 10) / 10));
+      volume?.set(v);
+      return showBar(tr('panelVol'), v);
+    }
+    const [step, lo, hi] = PICTURE[id];
+    pic[id] = Math.min(hi, Math.max(lo, +(pic[id] + dir * step).toFixed(3)));
+    applyPicture();
+    try {
+      localStorage.setItem(PICTURE_KEY, JSON.stringify(pic));
+    } catch {}
+    showBar(tr(`panel_${id}`), (pic[id] - lo) / (hi - lo));
+  }
+  applyPicture();
   // Where the pointer is on the TV's screen (OSD coordinates), while it's over the TV.
   let tvPointer = null;
   let osdAt = 0;
@@ -896,7 +991,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     const controls = tvPointer && screen.info
       ? { hover: zone?.zone, hoverFrac: zone?.frac, paused: screen.paused, progress: getProgress?.() || 0, duration: screen.info.duration || 0 }
       : null;
-    drawOsd(osdCanvas, { name: screen.info?.name, artist: screen.info?.artist, paused: screen.paused, channel: screen.channel, controls });
+    if (bar && t > bar.until) bar = null;
+    drawOsd(osdCanvas, { name: screen.info?.name, artist: screen.info?.artist, paused: screen.paused, channel: screen.channel, controls, bar });
     osdTex.needsUpdate = true;
   }
 
@@ -933,7 +1029,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     crt.uniforms.uTex.value = pic || blank;
     crt.uniforms.uHasTex.value = pic ? 1 : 0;
 
-    const on = screen.kind !== 'off';
+    const on = screen.kind !== 'off' && !userOff;
     screen.power += ((on ? 1 : 0) - screen.power) * (1 - Math.exp(-dt * 6));
     const u = crt.uniforms;
     u.uTime.value = time;
@@ -943,7 +1039,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       osdAt = time;
       redrawOsd();
     }
-    u.uOsdAlpha.value = screen.paused || tvPointer ? 1 : Math.min(1, Math.max(0, (screen.osdUntil - time) / 0.6));
+    if (bar && time > bar.until) redrawOsd();
+    u.uOsdAlpha.value = screen.paused || tvPointer || bar ? 1 : Math.min(1, Math.max(0, (screen.osdUntil - time) / 0.6));
     // Canvas videos are graded for a phone screen and already bright; covers get more push.
     const bright = kindNow === 'video' ? 1.0 : 2.0;
     u.uBright.value += ((screen.paused ? bright * 0.6 : bright) - u.uBright.value) * (1 - Math.exp(-dt * 4));
@@ -1044,6 +1141,21 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     get tvCenterY() {
       return state.tvCenterY;
     },
+    // The front panel control under the ray ('vol+', 'bright-', 'power', …), or null.
+    panelControl(raycaster) {
+      const hit = pickables.length > 0 && tvRoot && raycaster.intersectObjects(pickables, false)[0];
+      return hit && !ps1.meshes.includes(hit.object) ? panelAt(tvRoot.worldToLocal(hit.point.clone())) : null;
+    },
+    press,
+    // Debug: a point in the TV model's own coordinates, in the room.
+    tvToWorld: (x, y, z) => (tvRoot ? tvRoot.localToWorld(new THREE.Vector3(x, y, z)) : null),
+    // Debug: where the ray hits the TV set, in the model's own coordinates (for mapping its panel).
+    probeTv(raycaster) {
+      const hit = pickables.length > 0 && raycaster.intersectObjects(pickables, false)[0];
+      if (!hit || !tvRoot) return null;
+      const p = tvRoot.worldToLocal(hit.point.clone());
+      return { x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4), mat: hit.object.material?.name };
+    },
     // True when the ray hits the TV (the monitor, not the console in front of it).
     hitsTv(raycaster) {
       const hit = pickables.length > 0 && raycaster.intersectObjects(pickables, false)[0];
@@ -1077,6 +1189,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       if (!pickables.length) return null;
       const hit = raycaster.intersectObjects(pickables, false)[0];
       if (!hit || ps1.meshes.includes(hit.object)) return null;
+      const control = tvRoot && panelAt(tvRoot.worldToLocal(hit.point.clone()));
+      if (control) return { zone: 'panel', control };
       const p = hit.object === screenMesh && hit.uv ? osdPoint(hit.uv) : null;
       return (p && tvZone(p.x, p.y)) || { zone: 'play' };
     },

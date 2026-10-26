@@ -444,7 +444,7 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, volume, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
@@ -452,7 +452,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1, wall: '' };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
-  const handlers = { onPick, onHover, onTv, onLid, onLost };
+  const handlers = { onPick, onHover, onTv, onLid, onLost, volume };
   // The marker hand for the CD-R spines (the whiteboard loads it too; whichever is first adds it).
   if (assets.font && ![...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker')) {
     new FontFace('CDS Permanent Marker', `url(${assets.font})`)
@@ -1849,9 +1849,13 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     }
     // Camera: scroll target plus a slow drift and a lean toward the pointer.
     cam.y += (cam.target - cam.y) * (1 - Math.exp(-dt * 6));
-    const lean = pointer.over && look.sway;
-    const px = lean ? pointer.x : 0;
-    const py = lean ? pointer.y : 0;
+    // No leaning while zoomed in: it would slide small things (the TV's buttons) out from under the
+    // pointer.
+    const lean = pointer.over && look.sway && zoom.target === 1 && zoom.z < 1.02;
+    // Nor in the TV corner, where the targets are small; it fades out as the camera gets there.
+    const leanK = lean ? 1 - clamp(dollyF * 1.5, 0, 1) : 0;
+    const px = pointer.x * leanK;
+    const py = pointer.y * leanK;
     cam.x += (px * 30 - cam.x) * (1 - Math.exp(-dt * 2.5));
     const drift = reducedMotion || !look.sway ? 0 : Math.sin(t * 0.21) * 6;
     const f = cornerView(cam.y);
@@ -2224,6 +2228,13 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
           onTvNow ? { name: tr('tv'), artist: tr('tvHint') } : onConsoleNow ? { name: tr('console'), artist: tr(corner.lidOpen ? 'consoleClose' : 'consoleOpen') } : null,
         );
       }
+      // On the monitor's front panel, name the control under the pointer.
+      const control = onTvNow ? corner.panelControl(raycaster) : null;
+      if (control !== overControl) {
+        overControl = control;
+        if (control) handlers.onHover?.({ name: panelLabel(control), artist: tr('panelHint') });
+        else if (onTvNow) handlers.onHover?.({ name: tr('tv'), artist: tr('tvHint') });
+      }
     } else if (overTv || overConsole) {
       overTv = overConsole = false;
       corner?.pointTv(null);
@@ -2231,6 +2242,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   };
   let overTv = false;
   let overConsole = false;
+  let overControl = null;
+  const panelLabel = (c) => (c === 'power' ? tr('panelPower') : c === 'reset' ? tr('panelReset') : `${tr(c.startsWith('vol') ? 'panelVol' : `panel_${c.slice(0, -1)}`)} ${c.endsWith('+') ? '+' : '−'}`);
   const onLeave = () => {
     pointer.over = false;
     setHovered(null);
@@ -2248,7 +2261,9 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       }
       if (overTv && corner) {
         raycaster.setFromCamera(pointer.ndc, camera);
-        handlers.onTv?.(corner.tvAction(raycaster) || { zone: 'play' });
+        const action = corner.tvAction(raycaster) || { zone: 'play' };
+        if (action.zone === 'panel') corner.press(action.control, handlers.volume);
+        else handlers.onTv?.(action);
       }
       return;
     }
@@ -2454,6 +2469,20 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     },
     get hasConsole() {
       return !!corner?.hasConsole;
+    },
+    // Debug: where a point in the TV model's coordinates shows on screen (CSS px).
+    tvToScreen(x, y, z) {
+      const w = corner?.tvToWorld(x, y, z);
+      if (!w) return null;
+      w.project(camera);
+      const r = container.getBoundingClientRect();
+      return { x: Math.round(r.left + ((w.x + 1) / 2) * r.width), y: Math.round(r.top + ((1 - w.y) / 2) * r.height) };
+    },
+    // Debug: the TV model coordinates under a CSS point.
+    probeTv(clientX, clientY) {
+      const r = container.getBoundingClientRect();
+      raycaster.setFromCamera(_ndc.set(((clientX - r.left) / r.width) * 2 - 1, 1 - ((clientY - r.top) / r.height) * 2), camera);
+      return corner?.probeTv(raycaster) ?? null;
     },
     // Debug: just the console's insert animation, wherever the camera is.
     consoleInsert: (item) => corner?.insertDisc(item),
