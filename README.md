@@ -125,6 +125,7 @@ npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress
 | `ashtray.glb` | [Ashtray with Cigarettes](https://sketchfab.com/3d-models/ashtray-with-cigarettes-6e9bfb5e4b1e42b791a51c40cb993306) | YJ_ | CC BY 4.0 |
 | `table.glb` | [table_d from FPS Creator Classic](https://sketchfab.com/3d-models/table-d-from-fps-creator-classic-ef3b5348530448289083e82251233aaa) | Garbage Raccoon | CC BY 4.0 |
 | `fonts/PermanentMarker-Regular.ttf` | [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) | Font Diner | Apache 2.0 |
+| `fonts/Pangolin-Subset.woff2` | [Pangolin](https://fonts.google.com/specimen/Pangolin), subset (for lyrics the marker font can't write: Romanian, Polish, Vietnamese, Cyrillic, …) | The Pangolin Project Authors | SIL OFL 1.1 |
 
 The Sony set was prepared with Blender (`blender -b --python tools/optimize.py -- original.glb pvm_dec.glb`), then `gltf-transform optimize` (meshopt, 512 px WebP). `tools/split-pvm.py` can split it into separate pieces if you'd rather place them one by one.
 

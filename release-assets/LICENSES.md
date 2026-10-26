@@ -11,3 +11,4 @@ licence.
 | `whiteboard.glb` | [School whiteboard 90cm × 120cm](https://sketchfab.com/3d-models/school-whiteboard-90cm-x-120cm-280856e261974ed093d9d15892ef045e) | Pedro-Martins | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `ashtray.glb` | [Ashtray with Cigarettes](https://sketchfab.com/3d-models/ashtray-with-cigarettes-6e9bfb5e4b1e42b791a51c40cb993306) | YJ_ | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `fonts/PermanentMarker-Regular.ttf` | [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) | Font Diner | [Apache 2.0](fonts/LICENSE-PermanentMarker.txt) |
+| `fonts/Pangolin-Subset.woff2` | [Pangolin](https://fonts.google.com/specimen/Pangolin) (subset: Latin, Latin Extended, Vietnamese, Cyrillic; hinting removed) | The Pangolin Project Authors | [SIL OFL 1.1](fonts/LICENSE-Pangolin.txt) |

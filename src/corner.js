@@ -519,7 +519,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   let board = null;
   if (assets.board && furniture === 'table' && lyricsFor && getProgress) {
     later(() => {
-      board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, lyricsFor, getProgress, onReady: () => (arrange(), placed && place(...placed), reveal(board.group)) });
+      board = createWhiteboard({ own, loader: { loadAsync: (u) => loadModel(u).then((scene) => ({ scene })) }, asset: assets.board, font: assets.font, fontAlt: assets.fontAlt, lyricsFor, getProgress, onReady: () => (arrange(), placed && place(...placed), reveal(board.group)) });
       group.add(board.group);
       if (screen.info) board.setTrack(screen.info);
     });
@@ -756,6 +756,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   }
 
   return {
+    previewLyrics: (info, lyrics, ms) => board?.preview(info, lyrics, ms),
+    boardSnapshot: () => board?.snapshot(),
     group,
     place,
     update,

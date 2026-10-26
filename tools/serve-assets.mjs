@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 const port = Number(process.argv[2] || 8766);
 const root = join(process.cwd(), process.argv[3] || 'assets');
-const types = { '.glb': 'model/gltf-binary', '.ttf': 'font/ttf' };
+const types = { '.glb': 'model/gltf-binary', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
 createServer(async (req, res) => {
   const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
   try {

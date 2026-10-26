@@ -6,39 +6,74 @@ import { t as tr } from './i18n';
 
 const CANVAS = [1024, 768]; // the board's 4:3 writing surface
 const MARKER = '"CDS Permanent Marker", "Permanent Marker", "Comic Sans MS", cursive';
+// For lines the marker can't write (Romanian ș, Polish ą, Vietnamese, Cyrillic, …) a second hand,
+// used for the whole line so letters don't switch fonts mid-word. Scripts neither font has
+// (Chinese, Japanese, Korean, Thai, Arabic, …) come from the system's fonts.
+const HAND = '"CDS Pangolin", "Segoe Print", "Comic Sans MS", system-ui, sans-serif';
+// What Permanent Marker has glyphs for (Basic Latin, Latin-1 and a few more), plus notes and spaces.
+const MARKER_CHARS = /^[\s\u0020-\u007e\u00a0-\u00ff\u0131\u0141\u0142\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u02c6\u02c7\u02d8-\u02dd\u2013\u2014\u2018-\u201a\u201c-\u201e\u2022\u2026\u2030\u2039\u203a\u2044\u20ac\u2212\u266a\u266b]*$/;
+const handFor = (text) => (MARKER_CHARS.test(text) ? MARKER : HAND);
 const INK = { black: '#1d1d1f' }; // one black marker; the next line is just lighter
 // A line is written out across most of the time it's sung (until the next line starts), but no
 // slower than this per character, so a line followed by a long pause doesn't crawl.
 const WRITE_SHARE = 0.85;
 const MS_PER_CHAR_MAX = 110;
 
+// Letters as you'd count them (an emoji, a Korean syllable or a Thai letter with its marks is one),
+// so a line written out halfway never shows half a character.
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const letters = (text) => Array.from(graphemes.segment(text), (x) => x.segment);
+
+// Where a line may break: between words, which for Chinese, Japanese and Thai (no spaces) the
+// browser's word segmenter finds. Punctuation stays with the word before it.
+function breakable(text) {
+  const out = [];
+  for (const { segment, isWordLike } of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)) {
+    const glue = !isWordLike && !/^\s+$/.test(segment);
+    if (out.length && (glue || /^\s+$/.test(segment))) out[out.length - 1] += segment;
+    else out.push(segment);
+  }
+  return out;
+}
+
 function wrap(g, text, width) {
-  const words = text.split(/\s+/).filter(Boolean);
   const lines = [];
   let line = '';
-  for (const w of words) {
-    const next = line ? `${line} ${w}` : w;
-    if (g.measureText(next).width > width && line) {
-      lines.push(line);
-      line = w;
-    } else line = next;
+  const fits = (t) => g.measureText(t.trimEnd()).width <= width;
+  for (const piece of breakable(text)) {
+    if (line.trim() && !fits(line + piece)) {
+      lines.push(line.trim());
+      line = piece.trimStart();
+    } else line += piece;
+    // A single word wider than the board: break it between letters.
+    if (!fits(line)) {
+      let part = '';
+      for (const ch of letters(line)) {
+        if (part && !fits(part + ch)) {
+          lines.push(part.trim());
+          part = '';
+        }
+        part += ch;
+      }
+      line = part;
+    }
   }
-  if (line) lines.push(line);
+  if (line.trim()) lines.push(line.trim());
   return lines;
 }
 
 // Shrinks the font until the text fits in `maxLines` lines.
-function fitText(g, text, width, size, maxLines, min = 30) {
+function fitText(g, text, width, size, maxLines, min = 30, hand = handFor(text)) {
   for (let s = size; s >= min; s -= 4) {
-    g.font = `${s}px ${MARKER}`;
+    g.font = `${s}px ${hand}`;
     const lines = wrap(g, text, width);
     if (lines.length <= maxLines) return { size: s, lines };
   }
-  g.font = `${min}px ${MARKER}`;
+  g.font = `${min}px ${hand}`;
   return { size: min, lines: wrap(g, text, width).slice(0, maxLines) };
 }
 
-export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgress, onReady }) {
+export function createWhiteboard({ own, loader, asset, font, fontAlt, lyricsFor, getProgress, onReady }) {
   const group = new THREE.Group();
   const canvas = document.createElement('canvas');
   [canvas.width, canvas.height] = CANVAS;
@@ -62,18 +97,18 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
   );
   const state = { track: null, info: null, lyrics: undefined, key: '', fontReady: false, size: new THREE.Vector3(480, 360, 28) };
 
-  // The marker font, loaded from the bundle under our own name so it can't clash.
-  if (font) {
-    const face = new FontFace('CDS Permanent Marker', `url(${font})`);
-    face
-      .load()
-      .then((f) => {
-        document.fonts.add(f);
-        state.fontReady = true;
-        state.key = '';
-      })
-      .catch(() => (state.fontReady = true));
-  } else state.fontReady = true;
+  // The two hands, loaded from the bundle under our own names so they can't clash.
+  Promise.allSettled(
+    [
+      ['CDS Permanent Marker', font],
+      ['CDS Pangolin', fontAlt],
+    ]
+      .filter(([, url]) => url)
+      .map(([name, url]) => new FontFace(name, `url(${url})`).load().then((f) => document.fonts.add(f))),
+  ).then(() => {
+    state.fontReady = true;
+    state.key = '';
+  });
 
   loader.loadAsync(asset).then((gltf) => {
     const root = gltf.scene;
@@ -107,8 +142,18 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     onReady?.();
   });
 
+  // Debug: show given lyrics at a fixed time, without playing anything (__cdShelf.previewLyrics).
+  function preview(info, lyrics, ms) {
+    state.track = `preview:${info.name}`;
+    state.info = info;
+    state.lyrics = lyrics;
+    state.previewMs = ms;
+    state.key = '';
+  }
+
   function setTrack(info) {
     if (!info || info.uri === state.track) return;
+    state.previewMs = undefined;
     state.track = info.uri;
     state.info = info;
     state.lyrics = undefined; // loading
@@ -141,6 +186,8 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     g.clearRect(0, 0, W, H);
     g.textBaseline = 'alphabetic';
     g.lineJoin = 'round';
+    g.direction = 'ltr';
+    g.textAlign = 'left';
     const info = state.info;
     // Header: the song, small, in black, with a hand-drawn underline.
     if (info) {
@@ -158,8 +205,9 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     }
     if (!ly) {
       g.fillStyle = INK.black;
-      g.font = `52px ${MARKER}`;
-      g.fillText(state.lyrics === undefined ? tr('listening') : tr('noLyrics'), 60, H / 2 + 10);
+      const msg = state.lyrics === undefined ? tr('listening') : tr('noLyrics');
+      g.font = `52px ${handFor(msg)}`;
+      g.fillText(msg, 60, H / 2 + 10);
       g.font = `140px ${MARKER}`;
       g.fillStyle = INK.black;
       g.globalAlpha = 0.6;
@@ -168,6 +216,13 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
       return;
     }
     const lines = ly.lines;
+    // Right-to-left lyrics (Arabic, Hebrew, …) are written from the right edge.
+    const rtl = !!ly.rtl;
+    g.direction = rtl ? 'rtl' : 'ltr';
+    g.textAlign = rtl ? 'right' : 'left';
+    const x = (left) => (rtl ? W - left : left);
+    // One hand for the whole song, so it doesn't change from line to line.
+    ly.hand ??= ly.lines.every((l) => MARKER_CHARS.test(l.text)) ? MARKER : HAND;
     const text = (k) => {
       if (k < 0 || k >= lines.length) return '';
       const t = lines[k].text;
@@ -179,8 +234,8 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
       g.globalAlpha = 0.16;
       g.filter = 'blur(2.5px)';
       g.fillStyle = INK.black;
-      const prev = fitText(g, text(at.i - 1), W - 140, 44, 2, 28);
-      prev.lines.forEach((l, k) => g.fillText(l, 64 + k * 6, 170 + k * prev.size * 1.05));
+      const prev = fitText(g, text(at.i - 1), W - 140, 44, 2, 28, ly.hand);
+      prev.lines.forEach((l, k) => g.fillText(l, x(64 + k * 6), 170 + k * prev.size * 1.05));
       g.restore();
     }
     // The current line, being written out. Everything stays in the top part of the board: the PS2
@@ -188,20 +243,21 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     const cur = text(at.i);
     let below = 330;
     if (cur) {
-      const fit = fitText(g, cur, W - 130, 76, 3, 40);
-      const total = fit.lines.reduce((a, l) => a + l.length, 0);
+      const fit = fitText(g, cur, W - 130, 76, 3, 40, ly.hand);
+      const split = fit.lines.map(letters);
+      const total = split.reduce((a, l) => a + l.length, 0);
       let left = Math.ceil(total * reveal);
       g.fillStyle = INK.black;
       const top = 290 - ((fit.lines.length - 1) * fit.size) / 3;
       below = top + (fit.lines.length - 1) * fit.size * 1.12 + fit.size * 0.95;
-      fit.lines.forEach((l, k) => {
-        const part = l.slice(0, Math.max(0, left));
+      split.forEach((l, k) => {
+        const part = l.slice(0, Math.max(0, left)).join('');
         left -= l.length;
         if (!part) return;
         // A slight tilt per line, the way handwriting drifts.
         g.save();
-        g.translate(62, top + k * fit.size * 1.12);
-        g.rotate(-0.012 + k * 0.006);
+        g.translate(x(62), top + k * fit.size * 1.12);
+        g.rotate((rtl ? 1 : -1) * (0.012 - k * 0.006));
         g.fillText(part, 0, 0);
         g.restore();
       });
@@ -209,7 +265,7 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
       g.fillStyle = INK.black;
       g.globalAlpha = 0.7;
       g.font = `60px ${MARKER}`;
-      g.fillText('♪ …', 62, 300);
+      g.fillText('♪ …', x(62), 300);
       g.globalAlpha = 1;
     }
     // What's next, waiting underneath in a lighter hand.
@@ -217,9 +273,9 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     if (next) {
       g.fillStyle = INK.black;
       g.globalAlpha = 0.42;
-      const nf = fitText(g, next, W - 160, 40, 2, 26);
+      const nf = fitText(g, next, W - 160, 40, 2, 26, ly.hand);
       const y0 = Math.min(below + 26, H * 0.66);
-      nf.lines.forEach((l, k) => g.fillText(l, 66, y0 + k * nf.size * 1.05));
+      nf.lines.forEach((l, k) => g.fillText(l, x(66), y0 + k * nf.size * 1.05));
       g.globalAlpha = 1;
     }
   }
@@ -231,9 +287,9 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
     let at = { i: -1, start: 0, next: 1e9 };
     let reveal = 1;
     if (ly) {
-      const ms = getProgress();
+      const ms = state.previewMs ?? getProgress();
       at = lineAt(ly, ms, duration);
-      const chars = (ly.lines[at.i]?.text || '').length || 1;
+      const chars = letters(ly.lines[at.i]?.text || '').length || 1;
       const span = Math.max(250, Math.min((at.next - at.start) * WRITE_SHARE, chars * MS_PER_CHAR_MAX));
       reveal = ly.synced && at.i >= 0 ? Math.min(1, Math.max(0, (ms - at.start) / span)) : 1;
       // Redraw only when the picture changes: a new line, or another letter written out.
@@ -250,6 +306,8 @@ export function createWhiteboard({ own, loader, asset, font, lyricsFor, getProgr
   return {
     group,
     setTrack,
+    preview,
+    snapshot: () => g.canvas.toDataURL('image/png'),
     update,
     get current() {
       return state.current;

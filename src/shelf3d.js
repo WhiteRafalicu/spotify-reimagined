@@ -2075,6 +2075,13 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       Object.assign(look, next);
       wake();
     },
+    // Debug: put lyrics on the whiteboard at a fixed time, e.g.
+    // __cdShelf.previewLyrics({ name: 'Song' }, { synced: true, lines: [{ t: 0, text: '…' }] }, 500)
+    previewLyrics(info, lyrics, ms) {
+      corner?.previewLyrics(info, lyrics, ms);
+      wake();
+    },
+    boardSnapshot: () => corner?.boardSnapshot(),
     setDust(on) {
       dustPref = on;
       dust.visible = dustPref && q.dust && !reducedMotion;
