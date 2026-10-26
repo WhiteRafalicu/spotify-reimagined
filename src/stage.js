@@ -733,6 +733,26 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
     place(showPose(t));
     draw();
+    shareCaseBox();
+  }
+
+  // Where the case's bottom edge is on screen, as CSS variables on the overlay (--case-cx,
+  // --case-bottom, in px), for things placed under the case (the console button).
+  let lastBox = '';
+  function shareCaseBox() {
+    const host = container.parentElement;
+    if (!item || !host) return;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const r = caseRect(w, h);
+    if (!r) return;
+    const cx = Math.round((r.x + r.x1) / 2);
+    const bottom = Math.round(h - r.y);
+    const key = `${cx}|${bottom}`;
+    if (key === lastBox) return;
+    lastBox = key;
+    host.style.setProperty('--case-cx', `${cx}px`);
+    host.style.setProperty('--case-bottom', `${bottom}px`);
   }
 
   function followPlaying() {

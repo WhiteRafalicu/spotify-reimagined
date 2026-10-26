@@ -50,12 +50,16 @@ const FONT = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif'
 
 // The player controls in the page's header, right of the title: shuffle, play/pause, skip.
 const CTL_Y = 168;
+// Spaced so the play button never crowds its neighbours, and kept in from the page's right edge,
+// which sits close to the case's hinge.
+const CTL_GAP = 34;
+const CTL_SKIP_X = SIZE - MARGIN - 40;
 const CONTROLS = [
-  { id: 'shuffle', x: SIZE - MARGIN - 26 - 16 - 72 - 16 - 26, r: 26 },
-  { id: 'play', x: SIZE - MARGIN - 26 - 16 - 36, r: 36 },
-  { id: 'skip', x: SIZE - MARGIN - 26, r: 26 },
+  { id: 'shuffle', x: CTL_SKIP_X - 30 - CTL_GAP - 80 - CTL_GAP - 30, r: 30 },
+  { id: 'play', x: CTL_SKIP_X - 30 - CTL_GAP - 40, r: 40 },
+  { id: 'skip', x: CTL_SKIP_X, r: 30 },
 ];
-const CONTROLS_W = 26 * 2 + 72 + 32 + 24; // what the title keeps clear of
+const CONTROLS_W = SIZE - MARGIN - (CTL_SKIP_X - 30 - CTL_GAP - 80 - CTL_GAP - 60) + 20; // what the title keeps clear of
 // Which control a point on the page is on, or null.
 export function controlAt(x, y) {
   for (const c of CONTROLS) if (Math.hypot(x - c.x, y - CTL_Y) <= c.r + 6) return c.id;
@@ -68,12 +72,14 @@ function drawControls(g, ctl = {}, hover) {
     const on = c.id === 'shuffle' && ctl.live && ctl.shuffle;
     g.save();
     g.translate(c.x, CTL_Y);
+    const k = c.id === 'play' ? c.r / 36 : c.r / 26;
     if (c.id === 'play') {
       g.fillStyle = hover === 'play' ? '#3be477' : '#1ed760';
       g.beginPath();
       g.arc(0, 0, c.r, 0, Math.PI * 2);
       g.fill();
       g.fillStyle = '#000';
+      g.scale(k, k);
       if (ctl.live && ctl.playing) {
         g.fillRect(-11, -14, 8, 28);
         g.fillRect(3, -14, 8, 28);
@@ -94,6 +100,7 @@ function drawControls(g, ctl = {}, hover) {
       g.arc(0, 0, c.r, 0, Math.PI * 2);
       g.fill();
     }
+    g.scale(k, k);
     const ink = off ? 'rgba(255,255,255,0.25)' : on ? '#1ed760' : hover === c.id ? '#fff' : 'rgba(255,255,255,0.75)';
     g.strokeStyle = g.fillStyle = ink;
     g.lineWidth = 3;
