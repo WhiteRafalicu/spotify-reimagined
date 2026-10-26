@@ -4,7 +4,7 @@ import { createStage } from './stage';
 import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
 import assets from './assets.gen';
 import css from './style.css';
-import { DEFAULTS, getSettings, onSettings, setSettings } from './settings';
+import { DEFAULTS, SPEEDS, getSettings, onSettings, setSettings } from './settings';
 import { LANGUAGE_NAMES, t } from './i18n';
 
 const { useEffect, useMemo, useRef, useState, useCallback } = Spicetify.React;
@@ -126,7 +126,7 @@ function Stage({ item, now, effects, onClose, onShown }) {
 
   useEffect(() => {
     stage.current?.setEffects(effects);
-  }, [effects.sway, effects.glints]);
+  }, [effects.sway, effects.glints, effects.speed]);
 
   const live = now.context === item.uri;
   // Portalled to <body>: Spotify's view containers are transformed, which would pin a fixed
@@ -256,6 +256,19 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
         <Menu label={t('language')} value={settings.lang} onChange={(v) => set('lang', v)} options={[['auto', t('langAuto')], ...Object.entries(LANGUAGE_NAMES)]} />
       </div>
       <div className="cds-toggle is-stacked">
+        <span>{t('speed')}</span>
+        <Segmented
+          label={t('speed')}
+          value={settings.speed}
+          onChange={(v) => set('speed', v)}
+          options={[
+            ['slow', t('speedSlow')],
+            ['normal', t('speedNormal')],
+            ['fast', t('speedFast')],
+          ]}
+        />
+      </div>
+      <div className="cds-toggle is-stacked">
         <span>{t('look')}</span>
         <Segmented
           label={t('look')}
@@ -381,7 +394,7 @@ function App() {
   const pull = useCallback((item) => {
     shelf.current?.pullOut(item.uri);
     setHover(null);
-    setTimeout(() => setOnStage(item), PULL_MS);
+    setTimeout(() => setOnStage(item), PULL_MS / (SPEEDS[getSettings().speed] || 1));
   }, []);
   const shelve = useCallback(() => {
     setOnStage(null);
@@ -450,8 +463,8 @@ function App() {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
   useEffect(() => {
-    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight });
-  }, [settings.sway, settings.cursorLight, host, cornerKey]);
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1 });
+  }, [settings.sway, settings.cursorLight, settings.speed, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
@@ -618,7 +631,7 @@ function App() {
     <div className="cds-root">
       {host && Spicetify.ReactDOM.createPortal(world, host)}
       {onStage && (
-        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
+        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1 }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
     </div>
   );

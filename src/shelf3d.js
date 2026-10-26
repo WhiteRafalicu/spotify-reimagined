@@ -391,7 +391,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
   // Both move highlights across thin glass edges, which some people see as flicker.
-  const look = { sway: swayOn, cursorLight: cursorLightOn };
+  const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1 };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLost };
@@ -1691,7 +1691,6 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     let moving = cornerBusy || Math.abs(cam.target - cam.y) > 0.05 || !!spot || layerQueue.length > 0;
 
     targets();
-    const sdt = dt / 2;
     let wrote = instDirty;
     instDirty = false;
     let nearCount = 0;
@@ -1729,12 +1728,17 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
         }
       }
       if (!settled) {
-        const springK = c.spring ? c.spring.k : SPRING_K;
-        const springC = c.spring ? c.spring.c : SPRING_C;
-        for (let i = 0; i < 2; i++) {
+        // The animation speed setting runs the springs' clock faster or slower: stiffness by the
+        // square, damping by the factor (same shape, shorter), with more substeps to stay stable.
+        const sp = look.speed;
+        const springK = (c.spring ? c.spring.k : SPRING_K) * sp * sp;
+        const springC = (c.spring ? c.spring.c : SPRING_C) * sp;
+        const steps = Math.ceil(2 * Math.max(1, sp));
+        const h = dt / steps;
+        for (let i = 0; i < steps; i++) {
           for (const p of PROPS) {
-            c.vel[p] += ((c.target[p] - c.cur[p]) * springK - c.vel[p] * springC) * sdt;
-            c.cur[p] += c.vel[p] * sdt;
+            c.vel[p] += ((c.target[p] - c.cur[p]) * springK - c.vel[p] * springC) * h;
+            c.cur[p] += c.vel[p] * h;
           }
         }
         moving = true;

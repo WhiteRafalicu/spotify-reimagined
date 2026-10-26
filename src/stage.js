@@ -217,9 +217,10 @@ function averageColor(bitmap) {
 }
 
 export function createStage(container, album, { getSpin, getPlaying, onOpen, onPick, onDisc, onDismiss, onReady, onFail, effects = {} }) {
+  // speed: how fast the case arrives, opens, closes and leaves (1 = normal).
   // glints: the star filter on bright highlights. sway: the case drifts gently and leans toward the
   // pointer; without it the case holds still, so its thin glass edges don't shimmer.
-  const fx = { glints: true, sway: true, ...effects };
+  const fx = { glints: true, sway: true, speed: 1, ...effects };
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const swayAmount = () => (fx.sway ? (reduced ? 0.35 : 1) : 0);
   let motion = swayAmount();
@@ -454,7 +455,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   const pointer = { x: 0, y: 0, over: false };
   const lean = { x: 0, y: 0 };
   const grab = { active: false, start: null, last: null, x: 0, y: 0, vx: 0, vy: 0, flick: { x: 0, y: 0 }, moved: 0, dist: 0 };
-  const st = { t: 0, phase: 'arrive', phaseAt: 0, spin: 0, spinRate: 0, open: false, wantOpen: false, leaving: false };
+  // pt is the clock the arrive/open/close/leave animations run on: t scaled by the speed setting.
+  const st = { t: 0, pt: 0, phase: 'arrive', phaseAt: 0, spin: 0, spinRate: 0, open: false, wantOpen: false, leaving: false };
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let item = null;
@@ -476,7 +478,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     }
     if (st.phase !== 'rest') return;
     st.phase = 'opening';
-    st.phaseAt = st.t;
+    st.phaseAt = st.pt;
     setOpenFlag(true);
   }
   function startClose() {
@@ -487,7 +489,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     }
     if (st.phase !== 'open') return;
     st.phase = 'closing';
-    st.phaseAt = st.t;
+    st.phaseAt = st.pt;
     setOpenFlag(false);
   }
   function toggleOpen(on = !(st.phase === 'opening' || st.phase === 'open' || st.wantOpen)) {
@@ -497,7 +499,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
   function showPose(t) {
     const p = sway(t, motion);
-    const since = t - st.phaseAt;
+    const since = st.pt - st.phaseAt;
     if (st.phase === 'arrive' || st.phase === 'leave') {
       let u = clamp01(since / ARRIVE_T);
       if (st.phase === 'leave') u = 1 - u;
@@ -614,6 +616,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
   function frame(dt) {
     st.t += dt;
+    st.pt += dt * fx.speed;
     const { t } = st;
 
     const want = getSpin() ? SPIN : 0;
@@ -632,21 +635,21 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       grab.y += grab.vy * dt;
     }
 
-    const since = t - st.phaseAt;
+    const since = st.pt - st.phaseAt;
     if (st.phase === 'arrive' && since >= ARRIVE_T) {
       st.phase = 'rest';
-      st.phaseAt = t;
+      st.phaseAt = st.pt;
       if (st.wantOpen) startOpen();
     } else if (st.phase === 'opening' && since >= OPEN_T) {
       st.phase = 'open';
-      st.phaseAt = t;
+      st.phaseAt = st.pt;
       if (st.closeAfter) {
         st.closeAfter = false;
         startClose();
       }
     } else if (st.phase === 'closing' && since >= CLOSE_T) {
       st.phase = 'rest';
-      st.phaseAt = t;
+      st.phaseAt = st.pt;
       if (st.leaving) leave();
     } else if (st.phase === 'leave' && since >= ARRIVE_T) {
       st.leaving = false;
@@ -692,7 +695,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       return;
     }
     st.phase = 'leave';
-    st.phaseAt = st.t;
+    st.phaseAt = st.pt;
   }
 
   const _c = new THREE.Vector3();
@@ -938,7 +941,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       item = buildCase(tex);
       redrawPage();
       layout();
-      st.phaseAt = st.t;
+      st.phaseAt = st.pt;
       onReady?.();
       raf = requestAnimationFrame(tick);
     })
