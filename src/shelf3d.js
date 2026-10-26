@@ -120,30 +120,28 @@ function fitText(g, text, width) {
   return text.slice(0, lo).trimEnd() + '…';
 }
 
-// A burned mix: playlists get a paper insert with the name handwritten in marker, a strip of tape
-// in the cover's colour at the top, and faint ruled lines.
+// A burned mix: playlists get a paper insert with the name written large in black marker and a
+// strip of tape in the cover's colours at the top. The name fills most of the spine's width: the
+// spine layer is only 48 px across, and thin handwriting smaller than that can't be read.
 function drawCdrSpine(g, w, h, item, img) {
-  g.fillStyle = '#ece6d8';
+  g.fillStyle = '#efe9dc';
   g.fillRect(0, 0, w, h);
-  g.fillStyle = 'rgba(120,100,70,0.08)';
-  for (let i = 0; i < 400; i++) g.fillRect((i * 37) % w, (i * 113) % h, 1, 2);
-  g.strokeStyle = 'rgba(70,110,170,0.22)';
-  g.lineWidth = Math.max(1, w / 64);
-  for (const f of [0.28, 0.72]) {
-    g.beginPath();
-    g.moveTo(w * f, 0);
-    g.lineTo(w * f, h);
-    g.stroke();
-  }
+  const edge = g.createLinearGradient(0, 0, w, 0);
+  edge.addColorStop(0, 'rgba(0,0,0,0.12)');
+  edge.addColorStop(0.15, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.85, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.12)');
+  g.fillStyle = edge;
+  g.fillRect(0, 0, w, h);
   // The tape: the cover's colours, squashed into a short strip.
-  const tape = Math.round(h * 0.09);
+  const tape = Math.round(h * 0.07);
   if (img) g.drawImage(img, 0, img.naturalHeight * 0.35, img.naturalWidth, img.naturalHeight * 0.3, 0, 0, w, tape);
   else {
     g.fillStyle = '#d9b44a';
     g.fillRect(0, 0, w, tape);
   }
-  g.fillStyle = 'rgba(255,255,255,0.18)';
-  g.fillRect(0, tape - 3, w, 3);
+  g.fillStyle = 'rgba(255,255,255,0.22)';
+  g.fillRect(0, tape - 2, w, 2);
   g.save();
   g.translate(w / 2, 0);
   g.rotate(Math.PI / 2);
@@ -151,17 +149,18 @@ function drawCdrSpine(g, w, h, item, img) {
   g.scale(k, k);
   g.textBaseline = 'middle';
   const hand = '"CDS Permanent Marker", "Permanent Marker", "CDS Pangolin", "Segoe Print", "Comic Sans MS", cursive';
-  g.font = `34px ${hand}`;
-  g.fillStyle = '#1d2a52';
-  g.rotate(-0.012);
-  const name = fitText(g, item.name, h / k - tape / k - 70);
-  g.fillText(name, tape / k + 22, 2);
-  const used = g.measureText(name).width;
-  if (item.artist && h / k - tape / k - 70 - used > 90) {
-    g.font = `22px ${hand}`;
-    g.fillStyle = 'rgba(29,42,82,0.6)';
-    g.fillText(fitText(g, `– ${item.artist}`, h / k - tape / k - 80 - used), tape / k + 22 + used + 14, 4);
-  }
+  const room = h / k - tape / k - 48;
+  // As big as fits across (46 px of the 64), smaller only for long names.
+  let size = 46;
+  g.font = `${size}px ${hand}`;
+  while (g.measureText(item.name).width > room && size > 30) g.font = `${(size -= 2)}px ${hand}`;
+  const name = fitText(g, item.name, room);
+  g.fillStyle = '#15161c';
+  g.strokeStyle = '#15161c';
+  g.lineWidth = 1.6;
+  g.lineJoin = 'round';
+  g.strokeText(name, tape / k + 24, 3);
+  g.fillText(name, tape / k + 24, 3);
   g.restore();
 }
 
@@ -453,16 +452,33 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLid, onLost, volume };
-  // The marker hand for the CD-R spines (the whiteboard loads it too; whichever is first adds it).
+  // The marker hand for the CD-R spines and divider tabs (the whiteboard loads it too; whichever is
+  // first adds it). Anything drawn before it arrived is redrawn once it has, whoever loaded it.
+  // (fonts.check() is true for a family that isn't there at all, so look for the face itself.)
+  const markerReady = () => [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker' && f.status === 'loaded');
+  let drawnWithoutMarker = !markerReady();
+  const onFonts = () => {
+    if (!drawnWithoutMarker || !markerReady()) return;
+    drawnWithoutMarker = false;
+    for (const [uri, entry] of layerCache) if (cases.get(uri)?.item.kind === 'playlist') entry.final = false;
+    for (const c of slotOwner) if (c && c.item.kind === 'playlist') (c.layered = false), layerQueue.push(c);
+    for (const [label, d] of dividerMeshes) {
+      d.tex.dispose();
+      d.tex = tabTexture(label);
+      d.tabMat.map = d.tex;
+      d.tabMat.needsUpdate = true;
+    }
+    wake();
+  };
+  document.fonts.addEventListener('loadingdone', onFonts);
+  // (A face loaded first and added after doesn't always announce itself: look again a few times.)
+  for (const ms of [1500, 4000, 10000]) setTimeout(() => !disposed && onFonts(), ms);
   if (assets.font && ![...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker')) {
     new FontFace('CDS Permanent Marker', `url(${assets.font})`)
       .load()
       .then((f) => {
         document.fonts.add(f);
-        // Spines drawn before it arrived are redrawn with it.
-        for (const [uri, entry] of layerCache) if (cases.get(uri)?.item.kind === 'playlist') entry.final = false;
-        for (const c of slotOwner) if (c && c.item.kind === 'playlist') (c.layered = false), layerQueue.push(c);
-        wake();
+        onFonts();
       })
       .catch(() => {});
   }
@@ -2626,6 +2642,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       return lost;
     },
     dispose() {
+      document.fonts.removeEventListener('loadingdone', onFonts);
       clearInterval(daylightTimer);
       disposed = true;
       cancelAnimationFrame(raf);
