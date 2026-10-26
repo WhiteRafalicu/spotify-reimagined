@@ -310,6 +310,7 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose, onDiagnos
           <Swatches label={t('wallColor')} themeLabel={t('wallTheme')} value={settings.wall || ''} colors={WALLS} onChange={(v) => set('wall', v)} />
         </div>
         {choice('glass', 'glass', 'glass', ['clear', 'classic', 'smoky', 'blue'])}
+        {toggle('daylight', 'setDaylight', 'setDaylightHint')}
 
         {heading('secMotion')}
         {choice('speed', 'speed', 'speed', ['slow', 'normal', 'fast'])}
@@ -569,8 +570,8 @@ function App() {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
   useEffect(() => {
-    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics, wall: settings.wall || '', glass: GLASS[settings.glass] || GLASS.classic });
-  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, settings.wall, settings.glass, host, cornerKey]);
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics, wall: settings.wall || '', glass: GLASS[settings.glass] || GLASS.classic, daylight: !!settings.daylight });
+  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, settings.wall, settings.glass, settings.daylight, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shelved.items, { arrivals: arrivals.current, dividers: shelved.dividers });

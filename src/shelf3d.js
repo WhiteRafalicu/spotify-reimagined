@@ -557,7 +557,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     ...THEME.light,
   };
   scene.environmentIntensity = LIGHT.envIntensity;
-  scene.add(new THREE.HemisphereLight(LIGHT.skyColor, LIGHT.groundColor, LIGHT.hemiIntensity));
+  const hemi = new THREE.HemisphereLight(LIGHT.skyColor, LIGHT.groundColor, LIGHT.hemiIntensity);
+  scene.add(hemi);
   const key = new THREE.DirectionalLight(LIGHT.keyColor, LIGHT.keyIntensity);
   key.castShadow = true;
   key.shadow.mapSize.set(LIGHT.shadowMap, LIGHT.shadowMap);
@@ -571,6 +572,55 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const fill = new THREE.DirectionalLight(LIGHT.fillColor, LIGHT.fillIntensity);
   fill.position.set(0.6, -0.15, 1).multiplyScalar(1000);
   scene.add(fill);
+
+  // Light that follows the time of day (Settings): keyframes over the local hours, applied as
+  // multipliers on the look's own lighting, so every look keeps its character. Off: as designed.
+  const DAY = [
+    // hour, key tint, key, fill, hemi, env, picture lights, exposure, key height (0 low .. 1 as built)
+    [0, 0xff9050, 0.22, 0.5, 0.38, 0.5, 1.6, 0.9, 0.7],
+    [6, 0xffbb80, 0.55, 0.75, 0.75, 0.75, 0.9, 0.97, 0.25],
+    [9, 0xfff0dc, 1.2, 1.0, 1.4, 1.25, 0.35, 1.08, 0.8],
+    [13, 0xffffff, 1.35, 1.05, 1.6, 1.4, 0.2, 1.12, 1],
+    [17, 0xffdcb0, 1.2, 0.95, 1.2, 1.1, 0.5, 1.06, 0.6],
+    [19, 0xff9a50, 1.15, 0.8, 0.85, 0.9, 1.0, 1.02, 0.22],
+    [21, 0xff9858, 0.45, 0.6, 0.5, 0.6, 1.4, 0.94, 0.6],
+    [24, 0xff9050, 0.22, 0.5, 0.38, 0.5, 1.6, 0.9, 0.7],
+  ];
+  const baseKey = new THREE.Color(LIGHT.keyColor);
+  const keyDirNow = LIGHT.keyDir.clone();
+  let pictureNow = LIGHT.pictureIntensity;
+  const _ta = new THREE.Color();
+  const _tb = new THREE.Color();
+  function applyDaylight(hour) {
+    let mult = [null, 1, 1, 1, 1, 1, 1, 1];
+    if (hour !== null) {
+      const h = ((hour % 24) + 24) % 24;
+      let i = 0;
+      while (i < DAY.length - 2 && DAY[i + 1][0] <= h) i++;
+      const [a, b] = [DAY[i], DAY[i + 1]];
+      const u = (h - a[0]) / (b[0] - a[0]);
+      const k = u * u * (3 - 2 * u);
+      mult = a.map((v, j) => (j === 1 ? _ta.setHex(a[1]).lerp(_tb.setHex(b[1]), k) : v + (b[j] - v) * k));
+    }
+    key.color.copy(baseKey);
+    if (mult[1]) key.color.multiply(mult[1]);
+    key.intensity = LIGHT.keyIntensity * mult[2];
+    fill.intensity = LIGHT.fillIntensity * mult[3];
+    hemi.intensity = LIGHT.hemiIntensity * mult[4];
+    scene.environmentIntensity = LIGHT.envIntensity * mult[5];
+    pictureNow = LIGHT.pictureIntensity * mult[6];
+    renderer.toneMappingExposure = THEME.exposure * mult[7];
+    // A lower sun: the same direction, tipped toward the horizon (longer shadows).
+    keyDirNow.copy(LIGHT.keyDir);
+    if (hour !== null) keyDirNow.y *= 0.35 + 0.65 * mult[8];
+    keyDirNow.normalize();
+    shadowDirty = true;
+    wake();
+  }
+  let daylightOn = false;
+  let daylightHour = null; // a fixed hour to preview (debug), else the clock
+  const daylightNow = () => (daylightHour ?? new Date().getHours() + new Date().getMinutes() / 60);
+  const daylightTimer = setInterval(() => daylightOn && applyDaylight(daylightNow()), 60000);
   // A small warm lamp that follows the pointer, and settles on whatever case is being looked at.
   const lamp = new THREE.PointLight(0xffd6a8, 0, 300, 1);
   scene.add(lamp);
@@ -1899,7 +1949,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     }
     const keyY = shadowCenter;
     key.target.position.set(0, keyY, 0);
-    key.position.copy(key.target.position).addScaledVector(LIGHT.keyDir, 1800);
+    key.position.copy(key.target.position).addScaledVector(keyDirNow, 1800);
     key.target.updateMatrixWorld();
 
     // The lamp follows the pointer across the front of the shelf, rests on a hovered case, and for a
@@ -1927,7 +1977,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       deco.lights.forEach((l, k) => {
         const r = first + (k >> 1);
         // Dimmed, never hidden: switching lights on and off would recompile every material.
-        l.intensity = r < rowCount && l.on ? LIGHT.pictureIntensity * fade : 0;
+        l.intensity = r < rowCount && l.on ? pictureNow * fade : 0;
         l.position.set((k & 1 ? 1 : -1) * deco.unitW * 0.24, deco.boardY(r - 1) - BOARD / 2 - 14, DEPTH / 2 + 22);
         pools.pos.value[k].copy(l.position).applyMatrix4(camera.matrixWorldInverse);
         pools.power.value[k] = l.intensity;
@@ -2404,6 +2454,10 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     setQuality: (mode) => applyQuality(mode),
     setEffects(next) {
       const resize = next.size !== undefined && next.size !== look.size;
+      if (next.daylight !== undefined && next.daylight !== daylightOn) {
+        daylightOn = next.daylight;
+        applyDaylight(daylightOn ? daylightNow() : null);
+      }
       if (next.glass) {
         rodMat.uniforms.uAbsorb.value.set(...next.glass);
         sheetMat.uniforms.uAbsorb.value.set(...next.glass);
@@ -2503,6 +2557,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       const r = container.getBoundingClientRect();
       return { x: Math.round(r.left + ((w.x + 1) / 2) * r.width), y: Math.round(r.top + ((1 - w.y) / 2) * r.height) };
     },
+    // Debug: preview the time-of-day light at an hour (null: back to the clock).
+    previewHour(hour) {
+      daylightHour = hour;
+      applyDaylight(daylightOn || hour !== null ? daylightNow() : null);
+    },
     // Debug: the TV model coordinates under a CSS point.
     probeTv(clientX, clientY) {
       const r = container.getBoundingClientRect();
@@ -2567,6 +2626,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       return lost;
     },
     dispose() {
+      clearInterval(daylightTimer);
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();

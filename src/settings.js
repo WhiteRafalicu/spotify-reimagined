@@ -12,6 +12,7 @@ export const DEFAULTS = {
   sway: true, // the camera and the open case drift and lean toward the pointer
   cursorLight: true, // a lamp follows the pointer across the shelf
   glints: true, // star glints on bright highlights of the open case
+  daylight: false, // the room's light follows the time of day
   wall: '', // '' = the look's own wall colour, or a colour from WALLS
   glass: 'classic', // clear | classic | smoky | blue: the cases' plastic (see GLASS)
   lyrics: 'write', // write | line | karaoke: written out, whole lines, or whole lines inked in word by word
