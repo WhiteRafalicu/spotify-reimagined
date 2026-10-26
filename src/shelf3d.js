@@ -1400,16 +1400,26 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   };
 
   function place() {
-    rowCount = Math.ceil(order.length / perRow);
-    const rowW = perRow * PITCH_X;
+    // The flow along the rows: cases, with divider cards taking a slot before their section.
+    flow = [];
+    const before = new Map();
+    for (const d of dividerList) before.set(d.at, [...(before.get(d.at) || []), d]);
     order.forEach((uri, i) => {
-      const c = cases.get(uri);
-      const r = Math.floor(i / perRow);
-      const k = i % perRow;
-      c.index = i;
-      c.home.x = -rowW / 2 + PITCH_X * (k + 0.5);
-      c.home.y = rowY(r);
+      for (const d of before.get(i) || []) flow.push({ divider: d });
+      flow.push(uri);
     });
+    rowCount = Math.ceil(flow.length / perRow);
+    const rowW = perRow * PITCH_X;
+    const at = (i) => ({ x: -rowW / 2 + PITCH_X * ((i % perRow) + 0.5), y: rowY(Math.floor(i / perRow)) });
+    let pos = 0;
+    flow.forEach((e, i) => {
+      if (typeof e !== 'string') return;
+      const c = cases.get(e);
+      c.index = i;
+      c.pos = pos++;
+      Object.assign(c.home, at(i));
+    });
+    placeDividers(flow, at);
     // At least three rows of boards: a short library leaves empty shelves (room to grow) rather than
     // a stub, and keeps the TV corner below the opening view.
     const rows = Math.max(rowCount, MIN_ROWS);
@@ -1523,8 +1533,87 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     Promise.race([c.ready || Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]).then(go, go);
   }
 
-  function setItems(items, { arrivals } = {}) {
+  // Divider cards: a thin kraft card in its slot, a little taller than the cases, with an index tab
+  // above the spines facing the room, the section's name written on it in marker.
+  let flow = [];
+  let dividerList = [];
+  const dividerMeshes = new Map(); // label -> { card, tab, tex }
+  const DIV_W = 1.6;
+  const TAB_W = 30;
+  const TAB_H = 19;
+  const dividerCardGeo = own(new THREE.BoxGeometry(DIV_W, H + 6, D - 10));
+  const dividerTabGeo = own(new THREE.PlaneGeometry(TAB_W, TAB_H));
+  const kraft = own(new THREE.MeshStandardMaterial({ color: 0xb08a5a, roughness: 0.9 }));
+  function tabTexture(label) {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 160;
+    const g = c.getContext('2d');
+    g.fillStyle = '#c9a676';
+    g.beginPath();
+    g.roundRect(0, 0, 256, 160, [26, 26, 0, 0]);
+    g.fill();
+    g.fillStyle = 'rgba(70,45,20,0.18)';
+    for (let i = 0; i < 260; i++) g.fillRect(Math.random() * 256, Math.random() * 160, 1, 1 + Math.random() * 3);
+    g.fillStyle = '#2a1d12';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    let size = 96;
+    const font = (sz) => `${sz}px "CDS Permanent Marker", "Permanent Marker", "CDS Pangolin", "Comic Sans MS", cursive`;
+    g.font = font(size);
+    while (g.measureText(label).width > 230 && size > 34) g.font = font((size -= 6));
+    g.fillText(label, 128, 88);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  }
+  function placeDividers(list, at) {
+    const live = new Set();
+    // Where the dividers are, to size each tab to the room before the next one in its row.
+    const spots = [];
+    list.forEach((e, i) => typeof e !== 'string' && spots.push(i));
+    const room = (i) => {
+      let n = Infinity;
+      for (const j of spots) if (j !== i && Math.floor(j / perRow) === Math.floor(i / perRow)) n = Math.min(n, Math.abs(j - i));
+      return n * PITCH_X - 1.5;
+    };
+    list.forEach((e, i) => {
+      if (typeof e === 'string') return;
+      const label = e.divider.label;
+      live.add(label);
+      let d = dividerMeshes.get(label);
+      if (!d) {
+        const tex = tabTexture(label);
+        const tabMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, transparent: true, alphaTest: 0.5 });
+        const card = new THREE.Mesh(dividerCardGeo, kraft);
+        const tab = new THREE.Mesh(dividerTabGeo, tabMat);
+        card.castShadow = card.receiveShadow = true;
+        tab.castShadow = true;
+        scene.add(card, tab);
+        d = { card, tab, tex, tabMat };
+        dividerMeshes.set(label, d);
+      }
+      const p = at(i);
+      const k = Math.min(1, room(i) / TAB_W);
+      d.card.position.set(p.x, p.y + 3, -4);
+      d.tab.scale.setScalar(k);
+      d.tab.position.set(p.x, p.y + H / 2 + (TAB_H * k) / 2 - 1, D / 2 - 14);
+    });
+    for (const [label, d] of dividerMeshes) {
+      if (live.has(label)) continue;
+      scene.remove(d.card, d.tab);
+      d.tex.dispose();
+      d.tabMat.dispose();
+      dividerMeshes.delete(label);
+    }
+    shadowDirty = true;
+  }
+
+  // dividers: [{ at, label }]: a divider card goes before item `at` (record-store style sections).
+  function setItems(items, { arrivals, dividers = [] } = {}) {
     wake();
+    dividerList = dividers;
     const keep = new Set(items.map((i) => i.uri));
     for (const [uri, c] of cases) {
       if (keep.has(uri) || c.gone) continue;
@@ -1759,7 +1848,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     const rowHi = clamp(Math.ceil((-(lookY - seeHalf)) / ROW_PITCH) + 1, 0, Math.max(0, rowCount - 1));
     const want = (rowHi - rowLo + 1) * perRow + 24;
     if (want > capacity && capacity < MAX_SLOTS) ensureCapacity(want);
-    for (let i = rowLo * perRow; i < Math.min(order.length, (rowHi + 1) * perRow); i++) acquire(cases.get(order[i]));
+    for (let i = rowLo * perRow; i < Math.min(flow.length, (rowHi + 1) * perRow); i++) if (typeof flow[i] === 'string') acquire(cases.get(flow[i]));
     for (const c of [hovered, pulled, spot]) if (c && !c.gone) acquire(c);
     // Layer writes for newly slotted cases, a few milliseconds' worth per frame.
     // More of it while the view is still (nothing to keep smooth), less while scrolling.
@@ -2090,9 +2179,16 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -perRow, ArrowDown: perRow, PageUp: -perRow * 3, PageDown: perRow * 3 }[e.key];
     if (step !== undefined || e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
+      // Positions along the flow (so up/down is a row on screen), stepping over divider cards.
+      const isCase = (i) => typeof flow[i] === 'string';
       const from = kbIndex >= 0 ? kbIndex : hovered && hovered.index >= 0 ? hovered.index : -1;
-      kbIndex = e.key === 'Home' ? 0 : e.key === 'End' ? order.length - 1 : from < 0 ? 0 : clamp(from + step, 0, order.length - 1);
-      const c = cases.get(order[kbIndex]);
+      let i = e.key === 'Home' ? 0 : e.key === 'End' ? flow.length - 1 : from < 0 ? 0 : clamp(from + step, 0, flow.length - 1);
+      const dir = e.key === 'End' || (step !== undefined && step < 0) ? -1 : 1;
+      while (i >= 0 && i < flow.length && !isCase(i)) i += dir;
+      if (i < 0 || i >= flow.length) for (i = clamp(i, 0, flow.length - 1); i >= 0 && i < flow.length && !isCase(i); i -= dir);
+      if (!isCase(i)) return;
+      kbIndex = i;
+      const c = cases.get(flow[kbIndex]);
       setHovered(c);
       // Keep the selected row in view.
       const y = rowY(Math.floor(kbIndex / perRow));

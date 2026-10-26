@@ -5,6 +5,9 @@ export const DEFAULTS = {
   hideSidebar: true, // hide the Your Library sidebar
   discCover: true, // the player bar's cover is a spinning CD
   tvCorner: true, // the TV corner under the shelf
+  dividers: true, // record-store divider cards between sections
+  pins: [], // pinned discs (uris), first on the shelf
+  sort: 'recent', // recent | played | artist | name
   dust: true, // dust drifting in the light
   sway: true, // the camera and the open case drift and lean toward the pointer
   cursorLight: true, // a lamp follows the pointer across the shelf

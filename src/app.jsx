@@ -1,6 +1,7 @@
 // CD Shelf: your Spotify library as a rack of jewel cases. Pull one out to open it and play.
 import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
+import { sections } from './sections';
 import { createStage } from './stage';
 import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute } from './library';
 import assets from './assets.gen';
@@ -41,7 +42,7 @@ const SORTS = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
-function Stage({ item, now, effects, onClose, onShown, onConsole }) {
+function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin }) {
   const box = useRef(null);
   const stage = useRef(null);
   const nowRef = useRef(now);
@@ -144,6 +145,9 @@ function Stage({ item, now, effects, onClose, onShown, onConsole }) {
         </button>
         <button className="cds-chip is-play" onClick={() => playOrPause(item)}>
           {live && now.playing ? t('pause') : t('play')}
+        </button>
+        <button className={`cds-chip${pinned ? ' is-on' : ''}`} onClick={() => onPin(item)} aria-pressed={pinned}>
+          {pinned ? t('pinned') : t('pin')}
         </button>
         {onConsole && (
           <button className="cds-chip" onClick={() => onConsole(item)}>
@@ -284,6 +288,7 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose, onDiagnos
         {toggle('hideSidebar', 'setSidebar', 'setSidebarHint')}
         {toggle('discCover', 'setDisc', 'setDiscHint')}
         {toggle('tvCorner', 'setCorner', 'setCornerHint')}
+        {toggle('dividers', 'setDividers', 'setDividersHint')}
         {choice('size', 'size', 'size', ['small', 'normal', 'large', 'huge'], t('sizeHint'))}
 
         {heading('secLook')}
@@ -346,7 +351,7 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose, onDiagnos
         >
           {t('classic')}
         </button>
-        <button className="cds-chip" onClick={() => setSettings({ ...DEFAULTS })}>
+        <button className="cds-chip" onClick={() => setSettings({ ...DEFAULTS, pins: getSettings().pins })}>
           {t('reset')}
         </button>
       </div>
@@ -384,7 +389,6 @@ function App() {
       });
   }, []);
   const [filter, setFilter] = useState('all');
-  const [sort, setSort] = useState('recent');
   const [query, setQuery] = useState('');
   const [onStage, setOnStage] = useState(null);
   const [hover, setHover] = useState(null);
@@ -403,6 +407,9 @@ function App() {
   });
   const [tier, setTier] = useState(null);
   const [settings, setSettingsState] = useState(getSettings);
+  // Remembered between sessions (it shapes the shelf's sections).
+  const sort = SORTS[settings.sort] ? settings.sort : 'recent';
+  const setSort = (v) => setSettings({ sort: v });
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => onSettings(setSettingsState), []);
   // The TV corner is built with the scene, so switching it rebuilds the scene (see the mount effect).
@@ -431,6 +438,11 @@ function App() {
       .filter((i) => !q || i.name.toLowerCase().includes(q) || i.artist.toLowerCase().includes(q))
       .sort(SORTS[sort]);
   }, [items, filter, sort, query]);
+  // Sections (pinned first, then dividers by the sort); not while searching, where it's just results.
+  const shelved = useMemo(
+    () => sections(shown, sort, { pins: settings.pins || [], dividers: settings.dividers && !query.trim() }),
+    [shown, sort, settings.pins, settings.dividers, query],
+  );
 
   const pull = useCallback((item) => {
     shelf.current?.pullOut(item.uri);
@@ -534,9 +546,9 @@ function App() {
   }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, settings.wall, settings.glass, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
-    shelf.current?.setItems(shown, { arrivals: arrivals.current });
+    shelf.current?.setItems(shelved.items, { arrivals: arrivals.current, dividers: shelved.dividers });
     arrivals.current = null;
-  }, [shown, host, cornerKey]);
+  }, [shelved, host, cornerKey]);
 
   // Saving (or removing) an album or playlist anywhere in Spotify updates the shelf: new discs
   // slide in from the front, removed ones leave.
@@ -716,6 +728,11 @@ function App() {
           item={onStage}
           now={now}
           onConsole={settings.tvCorner && shelf.current?.hasConsole ? playInConsole : null}
+          pinned={(settings.pins || []).includes(onStage.uri)}
+          onPin={(item) => {
+            const pins = settings.pins || [];
+            setSettings({ pins: pins.includes(item.uri) ? pins.filter((u) => u !== item.uri) : [item.uri, ...pins] });
+          }}
           effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1, glass: GLASS[settings.glass] || GLASS.classic }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
     </div>
