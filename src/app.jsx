@@ -4,7 +4,7 @@ import { createStage } from './stage';
 import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock } from './library';
 import assets from './assets.gen';
 import css from './style.css';
-import { DEFAULTS, SIZES, SPEEDS, getSettings, onSettings, setSettings } from './settings';
+import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
 import { LANGUAGE_NAMES, t } from './i18n';
 
 const { useEffect, useMemo, useRef, useState, useCallback } = Spicetify.React;
@@ -163,16 +163,6 @@ const PARK_MS = 10 * 60 * 1000;
 let parked = null; // { shelf, timer }
 let keptItems = null;
 
-const TOGGLES = [
-  ['home', 'setHome', 'setHomeHint'],
-  ['hideSidebar', 'setSidebar', 'setSidebarHint'],
-  ['discCover', 'setDisc', 'setDiscHint'],
-  ['tvCorner', 'setCorner', 'setCornerHint'],
-  ['dust', 'setDust', ''],
-  ['sway', 'setSway', 'setSwayHint'],
-  ['cursorLight', 'setCursorLight', ''],
-  ['glints', 'setGlints', ''],
-];
 
 // Choices are drawn in the page instead of native <select> popups: those are separate OS widgets,
 // and in Spotify they can close without taking the click (the choice seems to reset).
@@ -183,6 +173,26 @@ function Segmented({ value, options, onChange, label }) {
         <button key={v} type="button" role="radio" aria-checked={v === value} className={`cds-seg-btn${v === value ? ' is-on' : ''}`} onClick={() => onChange(v)}>
           {text}
         </button>
+      ))}
+    </div>
+  );
+}
+
+function Swatches({ value, colors, onChange, label, themeLabel }) {
+  return (
+    <div className="cds-swatches" role="radiogroup" aria-label={label}>
+      {['', ...colors].map((c) => (
+        <button
+          key={c || 'theme'}
+          type="button"
+          role="radio"
+          aria-checked={c === value}
+          aria-label={c || themeLabel}
+          title={c || themeLabel}
+          className={`cds-swatch${c === value ? ' is-on' : ''}${c ? '' : ' is-theme'}`}
+          style={c ? { background: c } : undefined}
+          onClick={() => onChange(c)}
+        />
       ))}
     </div>
   );
@@ -234,6 +244,26 @@ function Menu({ value, options, onChange, label, className = '' }) {
 
 function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
   const set = (k, v) => setSettings({ [k]: v });
+  const toggle = (k, label, hint) => (
+    <label key={k} className="cds-toggle">
+      <input type="checkbox" checked={settings[k]} onChange={(e) => set(k, e.target.checked)} />
+      <span>
+        {t(label)}
+        {hint && <small>{t(hint)}</small>}
+      </span>
+    </label>
+  );
+  // A labelled row of choices; `keys` are setting values, labelled by t(prefix + Capitalised).
+  const choice = (k, label, prefix, keys, hint) => (
+    <div key={k} className="cds-toggle is-stacked">
+      <span>
+        {t(label)}
+        {hint && <small>{hint}</small>}
+      </span>
+      <Segmented label={t(label)} value={settings[k]} onChange={(v) => set(k, v)} options={keys.map((v) => [v, t(prefix + v[0].toUpperCase() + v.slice(1))])} />
+    </div>
+  );
+  const heading = (label) => <h3 className="cds-settings-section">{t(label)}</h3>;
   return (
     <div className="cds-settings" role="dialog" aria-label={t('settingsLabel')}>
       <div className="cds-settings-head">
@@ -242,90 +272,54 @@ function SettingsPanel({ settings, quality, setQuality, tier, onClose }) {
           ✕
         </button>
       </div>
-      {TOGGLES.map(([k, label, hint]) => (
-        <label key={k} className="cds-toggle">
-          <input type="checkbox" checked={settings[k]} onChange={(e) => set(k, e.target.checked)} />
+      <div className="cds-settings-body">
+        {heading('secShelf')}
+        {toggle('home', 'setHome', 'setHomeHint')}
+        {toggle('hideSidebar', 'setSidebar', 'setSidebarHint')}
+        {toggle('discCover', 'setDisc', 'setDiscHint')}
+        {toggle('tvCorner', 'setCorner', 'setCornerHint')}
+        {choice('size', 'size', 'size', ['small', 'normal', 'large', 'huge'], t('sizeHint'))}
+
+        {heading('secLook')}
+        {choice('theme', 'look', 'look', ['walnut', 'birch', 'minimal'])}
+        <div className="cds-toggle is-stacked">
+          <span>{t('wallColor')}</span>
+          <Swatches label={t('wallColor')} themeLabel={t('wallTheme')} value={settings.wall || ''} colors={WALLS} onChange={(v) => set('wall', v)} />
+        </div>
+        {choice('glass', 'glass', 'glass', ['clear', 'classic', 'smoky', 'blue'])}
+
+        {heading('secMotion')}
+        {choice('speed', 'speed', 'speed', ['slow', 'normal', 'fast'])}
+        {toggle('sway', 'setSway', 'setSwayHint')}
+        {toggle('cursorLight', 'setCursorLight', '')}
+        {toggle('glints', 'setGlints', '')}
+        {toggle('dust', 'setDust', '')}
+
+        {heading('secLyrics')}
+        {choice('lyrics', 'lyricsMode', 'lyrics', ['write', 'line'])}
+
+        {heading('secGeneral')}
+        <div className="cds-toggle">
+          <span>{t('language')}</span>
+          <Menu label={t('language')} value={settings.lang} onChange={(v) => set('lang', v)} options={[['auto', t('langAuto')], ...Object.entries(LANGUAGE_NAMES)]} />
+        </div>
+        <div className="cds-toggle is-stacked">
           <span>
-            {t(label)}
-            {hint && <small>{t(hint)}</small>}
+            {t('quality')}
+            <small>{t('qualityHint', { now: tier && quality === 'auto' ? t('qualityNow', { tier: t('q' + tier[0].toUpperCase() + tier.slice(1)) }) : '' })}</small>
           </span>
-        </label>
-      ))}
-      <div className="cds-toggle">
-        <span>{t('language')}</span>
-        <Menu label={t('language')} value={settings.lang} onChange={(v) => set('lang', v)} options={[['auto', t('langAuto')], ...Object.entries(LANGUAGE_NAMES)]} />
-      </div>
-      <div className="cds-toggle is-stacked">
-        <span>
-          {t('size')}
-          <small>{t('sizeHint')}</small>
-        </span>
-        <Segmented
-          label={t('size')}
-          value={settings.size}
-          onChange={(v) => set('size', v)}
-          options={[
-            ['small', t('sizeSmall')],
-            ['normal', t('sizeNormal')],
-            ['large', t('sizeLarge')],
-            ['huge', t('sizeHuge')],
-          ]}
-        />
-      </div>
-      <div className="cds-toggle is-stacked">
-        <span>{t('lyricsMode')}</span>
-        <Segmented
-          label={t('lyricsMode')}
-          value={settings.lyrics}
-          onChange={(v) => set('lyrics', v)}
-          options={[
-            ['write', t('lyricsWrite')],
-            ['line', t('lyricsLine')],
-          ]}
-        />
-      </div>
-      <div className="cds-toggle is-stacked">
-        <span>{t('speed')}</span>
-        <Segmented
-          label={t('speed')}
-          value={settings.speed}
-          onChange={(v) => set('speed', v)}
-          options={[
-            ['slow', t('speedSlow')],
-            ['normal', t('speedNormal')],
-            ['fast', t('speedFast')],
-          ]}
-        />
-      </div>
-      <div className="cds-toggle is-stacked">
-        <span>{t('look')}</span>
-        <Segmented
-          label={t('look')}
-          value={settings.theme}
-          onChange={(v) => set('theme', v)}
-          options={[
-            ['walnut', t('lookWalnut')],
-            ['birch', t('lookBirch')],
-            ['minimal', t('lookMinimal')],
-          ]}
-        />
-      </div>
-      <div className="cds-toggle is-stacked">
-        <span>
-          {t('quality')}
-          <small>{t('qualityHint', { now: tier && quality === 'auto' ? t('qualityNow', { tier: t('q' + tier[0].toUpperCase() + tier.slice(1)) }) : '' })}</small>
-        </span>
-        <Segmented
-          label={t('quality')}
-          value={quality}
-          onChange={setQuality}
-          options={[
-            ['auto', t('qAuto')],
-            ['high', t('qHigh')],
-            ['medium', t('qMedium')],
-            ['low', t('qLow')],
-          ]}
-        />
+          <Segmented
+            label={t('quality')}
+            value={quality}
+            onChange={setQuality}
+            options={[
+              ['auto', t('qAuto')],
+              ['high', t('qHigh')],
+              ['medium', t('qMedium')],
+              ['low', t('qLow')],
+            ]}
+          />
+        </div>
       </div>
       <div className="cds-settings-foot">
         <button
@@ -499,8 +493,8 @@ function App() {
     shelf.current?.setDust(settings.dust);
   }, [settings.dust, host, cornerKey]);
   useEffect(() => {
-    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics });
-  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, host, cornerKey]);
+    shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics, wall: settings.wall || '', glass: GLASS[settings.glass] || GLASS.classic });
+  }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, settings.wall, settings.glass, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shown, { arrivals: arrivals.current });
@@ -667,7 +661,7 @@ function App() {
     <div className="cds-root">
       {host && Spicetify.ReactDOM.createPortal(world, host)}
       {onStage && (
-        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1 }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
+        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1, glass: GLASS[settings.glass] || GLASS.classic }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
     </div>
   );

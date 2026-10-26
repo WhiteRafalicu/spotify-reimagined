@@ -195,7 +195,7 @@
   z-index: 10;
   top: 92px;
   right: 24px;
-  width: min(360px, calc(100% - 48px));
+  width: min(384px, calc(100% - 48px));
   padding: 16px 18px 14px;
   border-radius: 12px;
   color: #fff;
@@ -391,4 +391,68 @@
 }
 .cds-menu-item.is-on {
   color: #1ed760;
+}
+
+.cds-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cds-swatch {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+.cds-swatch:hover {
+  transform: scale(1.1);
+}
+.cds-swatch.is-on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(30, 215, 96, 0.9);
+}
+/* The look's own wall colour: half dark, half light. */
+.cds-swatch.is-theme {
+  background: linear-gradient(135deg, #1b1816 50%, #d6d0c6 50%);
+}
+
+/* The panel scrolls inside the window; the heading and the buttons at the foot stay put. */
+.cds-settings {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 116px);
+}
+.cds-settings-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -18px;
+  padding: 0 18px 8px;
+}
+.cds-settings-section {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+.cds-settings-section:first-child {
+  margin-top: 4px;
+}
+.cds-settings-body {
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+/* Choices share the row's width; a long label shortens rather than widening the panel. */
+.cds-seg-btn {
+  min-width: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

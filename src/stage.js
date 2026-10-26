@@ -220,7 +220,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   // speed: how fast the case arrives, opens, closes and leaves (1 = normal).
   // glints: the star filter on bright highlights. sway: the case drifts gently and leans toward the
   // pointer; without it the case holds still, so its thin glass edges don't shimmer.
-  const fx = { glints: true, sway: true, speed: 1, ...effects };
+  const fx = { glints: true, sway: true, speed: 1, glass: ABSORB, ...effects };
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const swayAmount = () => (fx.sway ? (reduced ? 0.35 : 1) : 0);
   let motion = swayAmount();
@@ -352,7 +352,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
           uDepth: { value: DEPTH },
           uIor: { value: IOR },
           uSamples: { value: samples },
-          uAbsorb: { value: new THREE.Vector3(...ABSORB) },
+          uAbsorb: { value: new THREE.Vector3(...fx.glass) },
         },
         vertexShader: ROD_VERT,
         fragmentShader: ROD_FRAG,
@@ -361,7 +361,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
   const sheetMaterial = () =>
     track(
       new THREE.ShaderMaterial({
-        uniforms: { uIor: { value: IOR }, uAbsorb: { value: new THREE.Vector3(...ABSORB) } },
+        uniforms: { uIor: { value: IOR }, uAbsorb: { value: new THREE.Vector3(...fx.glass) } },
         vertexShader: SHEET_VERT,
         fragmentShader: SHEET_FRAG,
         transparent: true,

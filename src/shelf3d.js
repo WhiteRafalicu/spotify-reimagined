@@ -391,7 +391,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
   // Both move highlights across thin glass edges, which some people see as flicker.
-  const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1 };
+  const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1, wall: '' };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
   const handlers = { onPick, onHover, onTv, onLost };
@@ -445,6 +445,21 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   wall.position.z = -D / 2 - 8;
   wall.receiveShadow = true;
   scene.add(wall);
+  // A wall colour of the viewer's choosing ('' = the look's own); the room beyond it (clear colour
+  // and fog) follows, a shade darker.
+  function setWall(color) {
+    look.wall = color;
+    const c = color || THEME.wall;
+    const old = wall.material.map;
+    wall.material.map = own(wallTexture(c));
+    wall.material.needsUpdate = true;
+    old?.dispose();
+    const bg = color ? new THREE.Color(color).multiplyScalar(0.55) : new THREE.Color(THEME.bg);
+    renderer.setClearColor(bg, 1);
+    scene.fog.color.copy(bg);
+    shadowDirty = true;
+    wake();
+  }
 
   // Lighting. One warm-neutral key above and slightly in front of the shelf casts every shadow;
   // a cool, weak fill from the lower right keeps shadowed faces readable; hemisphere and room
@@ -2151,6 +2166,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     setQuality: (mode) => applyQuality(mode),
     setEffects(next) {
       const resize = next.size !== undefined && next.size !== look.size;
+      if (next.glass) {
+        rodMat.uniforms.uAbsorb.value.set(...next.glass);
+        sheetMat.uniforms.uAbsorb.value.set(...next.glass);
+      }
+      if (next.wall !== undefined && next.wall !== look.wall) setWall(next.wall);
       if (next.lyricsMode) corner?.setLyricsMode(next.lyricsMode);
       Object.assign(look, next);
       if (resize) layout();
