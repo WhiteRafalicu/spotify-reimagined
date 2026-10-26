@@ -672,6 +672,8 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
     const since = st.pt - st.phaseAt;
     if (st.phase === 'arrive' && since >= ARRIVE_T) {
+      // The case is closed and facing front here (the last arrive frame): its size closed.
+      closedBottom = Math.max(closedBottom, caseBottom());
       st.phase = 'rest';
       st.phaseAt = st.pt;
       if (st.wantOpen) startOpen();
@@ -733,21 +735,38 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
 
     place(showPose(t));
     draw();
-    shareCaseBox();
+    // Measured closed (as it finishes arriving, see above) and again open; shared once open.
+    if (!boxShared && st.phase === 'open') shareCaseBox();
   }
 
-  // Where the case's bottom edge is on screen, as CSS variables on the overlay (--case-cx,
-  // --case-bottom, in px), for things placed under the case (the console button).
+  // Where the open case's bottom edge is on screen, as CSS variables on the overlay (--case-cx,
+  // --case-bottom, in px), for things placed under the case (the console button). Measured once,
+  // when the case has opened, so what's placed there stays put while the case sways, closes or is
+  // turned; again after a resize. The overlay gets .has-case-box once it's known.
+  // The closed case is larger on screen than the open one, so the lower of the two edges is used:
+  // the button then clears the case whichever way it's showing.
+  let boxShared = false;
   let lastBox = '';
+  let closedBottom = 0;
+  let closedExtra = 0;
+  function caseBottom() {
+    const r = item && caseRect(container.clientWidth, container.clientHeight);
+    return r ? container.clientHeight - r.y : 0;
+  }
   function shareCaseBox() {
     const host = container.parentElement;
     if (!item || !host) return;
+    boxShared = true;
+    host.classList.add('has-case-box');
     const w = container.clientWidth;
     const h = container.clientHeight;
     const r = caseRect(w, h);
     if (!r) return;
     const cx = Math.round((r.x + r.x1) / 2);
-    const bottom = Math.round(h - r.y);
+    // How much lower the closed case reaches, kept (in parts of the view's height) for re-measuring
+    // after a resize while it's open.
+    if (closedBottom) closedExtra = Math.max(0, (closedBottom - (h - r.y)) / h);
+    const bottom = Math.round(h - r.y + closedExtra * h);
     const key = `${cx}|${bottom}`;
     if (key === lastBox) return;
     lastBox = key;
@@ -891,7 +910,11 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     view = { w, h, openScale: Math.min(1.04, across / (CASE * 2.25)) };
   }
 
-  const ro = new ResizeObserver(() => layout());
+  const ro = new ResizeObserver(() => {
+    layout();
+    boxShared = false;
+    closedBottom = 0;
+  });
   ro.observe(container);
   glCanvas.addEventListener('webglcontextrestored', bakeRoom);
 
