@@ -41,7 +41,7 @@ const SORTS = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
-function Stage({ item, now, effects, onClose, onShown }) {
+function Stage({ item, now, effects, onClose, onShown, onConsole }) {
   const box = useRef(null);
   const stage = useRef(null);
   const nowRef = useRef(now);
@@ -145,6 +145,11 @@ function Stage({ item, now, effects, onClose, onShown }) {
         <button className="cds-chip is-play" onClick={() => playOrPause(item)}>
           {live && now.playing ? t('pause') : t('play')}
         </button>
+        {onConsole && (
+          <button className="cds-chip" onClick={() => onConsole(item)}>
+            {t('playInConsole')}
+          </button>
+        )}
       </div>
       <p className="cds-hint">
         {failed
@@ -386,6 +391,7 @@ function App() {
   const [failed, setFailed] = useState(false);
   const [host, setHost] = useState(null);
   const [notice, setNotice] = useState(null);
+  const lidPaused = useRef(false);
   // A diagnostics report the clipboard refused, shown so it can be copied by hand.
   const [diagText, setDiagText] = useState(null);
   const [quality, setQuality] = useState(() => {
@@ -431,6 +437,14 @@ function App() {
     setHover(null);
     setTimeout(() => setOnStage(item), PULL_MS / (SPEEDS[getSettings().speed] || 1));
   }, []);
+  // Put the case back, glide down to the TV corner, load the disc into the PlayStation, play it.
+  const playInConsole = useCallback(async (item) => {
+    setOnStage(null);
+    shelf.current?.setPaused(false);
+    shelf.current?.putBack();
+    const ok = await shelf.current?.playInConsole(item);
+    if (ok) playFrom(item, 0);
+  }, []);
   const shelve = useCallback(() => {
     setOnStage(null);
     shelf.current?.setPaused(false);
@@ -444,6 +458,17 @@ function App() {
       onPick: (item) => pull(item),
       onHover: setHover,
       // The TV's on-screen controls (see corner.js tvZone).
+      // The PlayStation's lid: open pauses, closing plays on (only if it was playing).
+      onLid: (open) => {
+        const P = Spicetify.Player;
+        if (open) {
+          lidPaused.current = P.isPlaying();
+          if (lidPaused.current) P.pause();
+        } else if (lidPaused.current) {
+          lidPaused.current = false;
+          P.play();
+        }
+      },
       onTv: ({ zone, frac } = {}) => {
         const P = Spicetify.Player;
         if (zone === 'prev') P.back();
@@ -686,7 +711,12 @@ function App() {
     <div className="cds-root">
       {host && Spicetify.ReactDOM.createPortal(world, host)}
       {onStage && (
-        <Stage key={onStage.uri} item={onStage} now={now} effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1, glass: GLASS[settings.glass] || GLASS.classic }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
+        <Stage
+          key={onStage.uri}
+          item={onStage}
+          now={now}
+          onConsole={settings.tvCorner && shelf.current?.hasConsole ? playInConsole : null}
+          effects={{ sway: settings.sway, glints: settings.glints, speed: SPEEDS[settings.speed] || 1, glass: GLASS[settings.glass] || GLASS.classic }} onClose={shelve} onShown={() => shelf.current?.setPaused(true)} />
       )}
     </div>
   );

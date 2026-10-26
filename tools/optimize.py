@@ -16,7 +16,8 @@ def tris(o):
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 before = sum(tris(o) for o in meshes)
 
-HIDDEN = ('body_inner', 'laser_disc_rotor', 'laser_plate', 'back_pannel', 'input_out', 'input_in', 'adapters', 'ps1_plugs', 'pvm_plugs', 'power')
+# The console's insides stay: they show when its lid opens to take a disc (see the lid below).
+HIDDEN = ('back_pannel', 'input_out', 'input_in', 'adapters', 'ps1_plugs', 'pvm_plugs', 'power')
 for o in list(meshes):
     if owner(o).startswith(HIDDEN):
         bpy.data.objects.remove(o, do_unlink=True)
@@ -62,6 +63,8 @@ meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 # hinge, so clearing that node's rotation lays it in its recess exactly as modelled.
 cap_node = next(o for o in bpy.data.objects if o.name.startswith('ps1_cap'))
 cap_node.rotation_mode = 'QUATERNION'
+# Kept: how far it opens, to animate it in the app.
+open_axis, open_angle = cap_node.rotation_quaternion.to_axis_angle()
 cap_node.rotation_quaternion = (1, 0, 0, 0)
 bpy.context.view_layer.update()
 print('LID closed at its hinge pivot')
@@ -116,7 +119,7 @@ def cable_end(o):
     a, b = min(((p, q) for p in P[::7] for q in CW[::5]), key=lambda pq: (pq[0] - pq[1]).length_squared)
     return Vector((a.x, a.y, 0))
 port = centre(next(iter(parts('connector.001'))))
-turn(parts('Ps1_body', 'ps1_cap', 'connector.001'), Vector((port.x, port.y, 0)), 7)
+turn(parts('Ps1_body', 'ps1_cap', 'connector.001', 'body_inner', 'laser_disc_rotor', 'laser_plate'), Vector((port.x, port.y, 0)), 7)
 turn([flat], cable_end(flat), -16)
 turn([pad], cable_end(pad), 12)
 monitor = parts('main_body', 'front_panel', 'glass_and_fence')
@@ -126,7 +129,7 @@ print('MESS console +7, pads -16/+12, monitor -2.5 degrees')
 
 # Decimation per part: small-on-screen pieces hardest.
 RATIO = [
-    ('ps_controller', 0.12), ('connector', 0.3), ('Ps1_body_details', 0.35), ('Ps1_body', 0.35), ('ps1_cap', 0.6),
+    ('ps_controller', 0.12), ('connector', 0.3), ('Ps1_body_details', 0.35), ('Ps1_body', 0.35), ('ps1_cap', 0.6), ('body_inner', 0.25), ('laser_disc_rotor', 0.3), ('laser_plate', 0.3),
     ('ps_cable', 0.15), ('main_body', 0.18), ('front_panel', 0.3),
 ]
 for o in meshes:
@@ -143,8 +146,41 @@ roots = [o for o in bpy.data.objects if o.parent is None]
 for o in roots:
     o.matrix_world = Matrix.Rotation(math.pi, 4, 'Z') @ o.matrix_world
 
+# The lid, ready to animate: its own material (so glTF optimizers that join meshes by material keep
+# it apart), its origin on the hinge, and extras the app reads (glTF axes, y up): the hinge axis and
+# point, the opening angle, and where a disc sits on the spindle.
+bpy.context.view_layer.update()
+gl = lambda v: [round(v.x, 6), round(v.z, 6), round(-v.y, 6)]
+# The lid mesh sat at its hinge node's origin until it was turned with the console, so its world
+# matrix is the hinge's, turn included.
+lid = next(o for o in bpy.data.objects if o.type == 'MESH' and o.parent == cap_node)
+W = lid.matrix_world.copy()
+pivot = W.translation.copy()
+axis = (W.to_3x3().normalized() @ open_axis).normalized()
+mat = lid.data.materials[0].copy()
+mat.name = 'ps1_lid_mat'
+# A hair different, or the optimizer's dedup merges it back into the original (and joins the lid).
+# (Its exported emissive strength, 0.1% lower: the textures it shares can't tell them apart.)
+bsdf = next((n for n in (mat.node_tree.nodes if mat.use_nodes else []) if n.type == 'BSDF_PRINCIPLED'), None)
+if bsdf: bsdf.inputs['Emission Strength'].default_value *= 0.999
+lid.data.materials[0] = mat
+bpy.context.scene.cursor.location = pivot
+bpy.ops.object.select_all(action='DESELECT')
+lid.select_set(True)
+bpy.context.view_layer.objects.active = lid
+bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+rotor = next(o for o in bpy.data.objects if o.type == 'MESH' and owner(o).startswith('laser_disc_rotor'))
+RP = [rotor.matrix_world @ v.co for v in rotor.data.vertices]
+spindle = Vector(((min(p.x for p in RP) + max(p.x for p in RP)) / 2, (min(p.y for p in RP) + max(p.y for p in RP)) / 2, max(p.z for p in RP)))
+lid['cds_hinge_axis'] = gl(axis)
+lid['cds_hinge_pivot'] = gl(pivot)
+lid['cds_open_angle'] = round(open_angle, 6)
+lid['cds_spindle'] = gl(spindle)
+lid.name = 'ps1_lid'
+print(f'LID hinge axis {gl(axis)} pivot {gl(pivot)} open {math.degrees(open_angle):.1f} deg, spindle {gl(spindle)}')
+
 after = sum(tris(o) for o in bpy.data.objects if o.type == 'MESH')
 print(f'TRIS before {before} after {after}')
 for o in sorted([o for o in bpy.data.objects if o.type == 'MESH'], key=lambda o: -tris(o))[:14]:
     print(f'  {tris(o):6d}  {owner(o)}  {[m.name for m in o.data.materials if m]}')
-bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB', export_apply=True, export_yup=True)
+bpy.ops.export_scene.gltf(filepath=dst, export_format='GLB', export_apply=True, export_yup=True, export_extras=True)

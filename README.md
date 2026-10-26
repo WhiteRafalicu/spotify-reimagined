@@ -44,6 +44,8 @@ spicetify apply
 | Drag the case | Turn it |
 | Click outside the case or press **Esc** | Put it back |
 | Hover the TV | Its screen shows controls: previous, play/pause, next and a seek bar |
+| **Play in the console** (on an open case) | The camera glides to the TV corner and the disc goes into the PlayStation, which then plays it |
+| Click the PlayStation | Open its lid to see the disc (pauses the music); click again to close it and play on |
 | Click a control on the TV / elsewhere on the TV | Do that / play or pause |
 | **Ctrl** + scroll (or pinch) | Zoom in where the pointer is, to read the spines; **Esc** zooms back out |
 | Arrow keys / Page Up / Page Down / Home / End | Move between discs (click the shelf first) |
@@ -137,7 +139,7 @@ npx gltf-transform optimize in.glb out.glb --compress meshopt --texture-compress
 | `fonts/PermanentMarker-Regular.ttf` | [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) | Font Diner | Apache 2.0 |
 | `fonts/Pangolin-Subset.woff2` | [Pangolin](https://fonts.google.com/specimen/Pangolin), subset (for lyrics the marker font can't write: Romanian, Polish, Vietnamese, Cyrillic, …) | The Pangolin Project Authors | SIL OFL 1.1 |
 
-The Sony set was prepared with Blender (`blender -b --python tools/optimize.py -- original.glb pvm_dec.glb`), then `gltf-transform optimize` (meshopt, 512 px WebP). `tools/split-pvm.py` can split it into separate pieces if you'd rather place them one by one.
+The Sony set was prepared with Blender (`blender -b --python tools/optimize.py -- original.glb pvm_dec.glb`), then `gltf-transform optimize` (meshopt, 512 px WebP, `--simplify false`). The script keeps the PlayStation's lid as its own node (`ps1_lid`, with its own material so the optimizer doesn't join it back) and writes its hinge axis and point, opening angle and spindle position into the node's extras, which `src/corner.js` uses to open the lid and put discs in. `tools/split-pvm.py` can split it into separate pieces if you'd rather place them one by one.
 
 Because the build embeds them, don't publish `dist/` from a build that includes them.
 

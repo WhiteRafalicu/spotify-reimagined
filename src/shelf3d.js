@@ -386,7 +386,7 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
@@ -394,7 +394,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
   const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1, wall: '' };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
-  const handlers = { onPick, onHover, onTv, onLost };
+  const handlers = { onPick, onHover, onTv, onLid, onLost };
   let detached = false;
   const canvas = document.createElement('canvas');
   canvas.className = 'cds-shelf-canvas';
@@ -1056,6 +1056,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
           prepare: (obj, light) => (warmChain = warmChain.then(() => prepareGpu(obj, light)).catch(() => {})),
         })
       : null;
+  corner?.onLidChange((open) => handlers.onLid?.(open));
 
   let warmChain = Promise.resolve();
   const idle = () => new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(r, { timeout: 200 }) : setTimeout(r, 16)));
@@ -1623,15 +1624,19 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     const ny = 1 - ((e.clientY - r.top) / r.height) * 2;
     const next = clamp(zoom.target * factor, 1, 3.5);
     if (next === zoom.target) return;
-    // Where the pointer is now, on the shelf front: keep it under the pointer at the new zoom.
+    // What's under the pointer now (a case, the TV corner, else the shelf front): keep that point
+    // under the pointer at the new zoom, at its own depth.
     raycaster.setFromCamera(_ndc.set(nx, ny), camera);
-    const hit = raycaster.ray.intersectPlane(frontPlane, _zp);
+    const solid = raycaster.intersectObjects(scene.children, true).find((h) => h.object.visible && h.object.isMesh && !h.object.isInstancedMesh);
+    const hit = solid ? _zp.copy(solid.point) : raycaster.ray.intersectPlane(frontPlane, _zp);
     zoom.target = next;
     if (next === 1 || !hit) {
       zoom.tox = zoom.toy = 0;
     } else {
       const base = baseAim();
-      const halfH = ((baseZ() - FRONT_Z) / next) * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      // The camera moves toward the shelf front; a nearer point needs its own distance for the fit.
+      const depth = Math.max(40, baseZ() - hit.z - (baseZ() - FRONT_Z) * (1 - 1 / next));
+      const halfH = depth * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
       zoom.tox = clamp(hit.x - nx * halfH * camera.aspect - base.x, -view.visW / 2, view.visW / 2);
       zoom.toy = clamp(hit.y - ny * halfH - base.y, -view.visH / 2, view.visH / 2);
     }
@@ -2025,18 +2030,23 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     if (!hovered && corner) {
       raycaster.setFromCamera(pointer.ndc, camera);
       const onTvNow = corner.hitsTv(raycaster);
+      const onConsoleNow = !onTvNow && corner.hasConsole && corner.hitsConsole(raycaster);
       corner.pointTv(onTvNow ? raycaster : null);
-      container.style.cursor = onTvNow ? 'pointer' : '';
-      if (onTvNow !== overTv) {
+      container.style.cursor = onTvNow || onConsoleNow ? 'pointer' : '';
+      if (onTvNow !== overTv || onConsoleNow !== overConsole) {
         overTv = onTvNow;
-        handlers.onHover?.(onTvNow ? { name: tr('tv'), artist: tr('tvHint') } : null);
+        overConsole = onConsoleNow;
+        handlers.onHover?.(
+          onTvNow ? { name: tr('tv'), artist: tr('tvHint') } : onConsoleNow ? { name: tr('console'), artist: tr(corner.lidOpen ? 'consoleClose' : 'consoleOpen') } : null,
+        );
       }
-    } else if (overTv) {
-      overTv = false;
+    } else if (overTv || overConsole) {
+      overTv = overConsole = false;
       corner?.pointTv(null);
     }
   };
   let overTv = false;
+  let overConsole = false;
   const onLeave = () => {
     pointer.over = false;
     setHovered(null);
@@ -2047,6 +2057,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
     onMove(e);
     const c = pick();
     if (!c) {
+      if (overConsole && corner) {
+        corner.toggleLid();
+        handlers.onHover?.({ name: tr('console'), artist: tr(corner.lidOpen ? 'consoleClose' : 'consoleOpen') });
+        return;
+      }
       if (overTv && corner) {
         raycaster.setFromCamera(pointer.ndc, camera);
         handlers.onTv?.(corner.tvAction(raycaster) || { zone: 'play' });
@@ -2172,6 +2187,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       }
       if (next.wall !== undefined && next.wall !== look.wall) setWall(next.wall);
       if (next.lyricsMode) corner?.setLyricsMode(next.lyricsMode);
+      if (next.speed) corner?.setSpeed(next.speed);
       Object.assign(look, next);
       if (resize) layout();
       wake();
@@ -2226,7 +2242,29 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLost, c
       const c = uri ? cases.get(uri) : null;
       if (c === live) return;
       live = c || null;
+      // The console holds whatever is playing.
+      if (c) corner?.holdDisc(c.item);
       wake();
+    },
+    get hasConsole() {
+      return !!corner?.hasConsole;
+    },
+    // Debug: just the console's insert animation, wherever the camera is.
+    consoleInsert: (item) => corner?.insertDisc(item),
+    // "Play in the console": glide down to the TV corner, then put the disc in. Resolves once the
+    // lid has shut on it (the caller starts the music).
+    async playInConsole(item) {
+      if (!corner?.hasConsole) return false;
+      resetZoom();
+      cam.target = bottomY();
+      wake();
+      const t0 = performance.now();
+      while (Math.abs(cam.y - cam.target) > 6 && performance.now() - t0 < 2500) {
+        wake();
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await corner.insertDisc(item);
+      return true;
     },
     // Fly a case out toward the viewer (also used when a case is opened from the player bar).
     pullOut,

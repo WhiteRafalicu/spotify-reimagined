@@ -9,6 +9,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { CRT_FRAG, CRT_VERT } from './shaders';
 import { createWhiteboard } from './whiteboard';
+import { loadCover } from './cover';
 
 // Stand, in millimetres. Local origin: on the floor, centred, at the wall (+z comes out of the wall).
 const STAND = { w: 760, d: 430, legs: 90, body: 300, slab: 20, side: 20, back: 6 };
@@ -412,6 +413,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       tv.add(glow);
       group.add(tv);
       pickables.push(...collect(tv));
+      setupConsole(root);
       arrange();
       if (placed) place(...placed);
       reveal(tv, glow);
@@ -592,6 +594,149 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     });
   }
 
+  // The PlayStation: its lid opens on its hinge (the model's ps1_lid node and the extras
+  // tools/optimize.py writes on it), and it holds a disc, the playing album's or playlist's, on its
+  // spindle. Opening the lid pauses the music, as on the real thing; closing it plays on.
+  const ps1 = {
+    lid: null,
+    rest: null, // the lid node's own matrix, closed
+    pivot: new THREE.Vector3(),
+    axis: new THREE.Vector3(1, 0, 0),
+    angle: 0,
+    open: 0, // 0 closed .. 1 open, as shown
+    target: 0,
+    meshes: [],
+    disc: null, // { mesh, uri }
+    discY: 0, // the disc's lift above the spindle, 0..1 (1 = out above the console)
+    discTarget: 0,
+    seq: null, // the running insert animation
+    speed: 1,
+    lidChanged: null,
+  };
+  const _lidA = new THREE.Matrix4();
+  const _lidB = new THREE.Matrix4();
+  const _lidQ = new THREE.Quaternion();
+  function setupConsole(root) {
+    const lid = root.getObjectByName('ps1_lid');
+    const x = lid?.userData;
+    if (!lid || !x?.cds_hinge_axis) return;
+    ps1.lid = lid;
+    lid.matrixAutoUpdate = false;
+    lid.updateMatrix();
+    ps1.rest = lid.matrix.clone();
+    ps1.pivot.fromArray(x.cds_hinge_pivot);
+    ps1.axis.fromArray(x.cds_hinge_axis).normalize();
+    ps1.angle = x.cds_open_angle;
+    ps1.spindle = new THREE.Vector3().fromArray(x.cds_spindle);
+    root.traverse((o) => o.isMesh && /^ps1_(body|details|lid)/.test(o.material?.name || '') && ps1.meshes.push(o));
+    ps1.root = root;
+  }
+  function poseLid() {
+    // Rotate the closed lid about the hinge, in the model's own space: T(p) R T(-p) M.
+    _lidQ.setFromAxisAngle(ps1.axis, ps1.angle * ease(ps1.open));
+    _lidA.makeTranslation(ps1.pivot.x, ps1.pivot.y, ps1.pivot.z).multiply(_lidB.makeRotationFromQuaternion(_lidQ));
+    _lidA.multiply(_lidB.makeTranslation(-ps1.pivot.x, -ps1.pivot.y, -ps1.pivot.z)).multiply(ps1.rest);
+    ps1.lid.matrix.copy(_lidA);
+    ps1.lid.matrixWorldNeedsUpdate = true;
+  }
+  const ease = (u) => u * u * (3 - 2 * u);
+
+  // A CD printed with the cover: a ring, its planar UVs putting the cover's middle on the label.
+  const discGeo = own(new THREE.RingGeometry(0.0075, 0.06, 64, 1));
+  discGeo.rotateX(-Math.PI / 2);
+  const discUnder = own(new THREE.MeshStandardMaterial({ color: 0xcfd3d8, metalness: 1, roughness: 0.18 }));
+  async function discFor(item) {
+    const urls = [item?.art, item?.thumb].filter(Boolean);
+    let tex = null;
+    if (urls.length) {
+      try {
+        const { blob } = await loadCover(urls, item.name || '', { within: 4000 });
+        const bmp = await createImageBitmap(blob);
+        tex = own(new THREE.Texture(bmp));
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.flipY = false;
+        tex.needsUpdate = true;
+      } catch {}
+    }
+    const top = own(new THREE.MeshStandardMaterial({ map: tex, color: tex ? 0xffffff : 0xdedede, metalness: 0.25, roughness: 0.38 }));
+    const mesh = new THREE.Group();
+    const face = new THREE.Mesh(discGeo, top);
+    face.position.y = 0.0006;
+    const under = new THREE.Mesh(discGeo, discUnder);
+    under.rotation.x = Math.PI;
+    mesh.add(face, under);
+    mesh.position.copy(ps1.spindle);
+    mesh.position.y += 0.002;
+    mesh.traverse((o) => o.isMesh && (o.castShadow = o.receiveShadow = false));
+    return mesh;
+  }
+  function placeDisc() {
+    if (!ps1.disc) return;
+    const u = ease(ps1.discY);
+    const m = ps1.disc.mesh;
+    m.position.copy(ps1.spindle);
+    m.position.y += 0.002 + u * 0.16;
+    m.position.z -= u * 0.05;
+    m.rotation.set(-u * 0.5, u * 0.6, 0);
+    m.visible = ps1.open > 0.02 || ps1.discY > 0.001;
+  }
+  function setLid(open, { quiet = false } = {}) {
+    if (!ps1.lid) return;
+    ps1.target = open ? 1 : 0;
+    if (!quiet) ps1.lidChanged?.(open);
+    onChange?.();
+  }
+  // Animates a disc for `item` into the console; resolves when the lid is shut again.
+  async function insertDisc(item) {
+    if (!ps1.lid) return;
+    const run = (ps1.seq = {});
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms / ps1.speed));
+    const next = discFor(item);
+    setLid(true, { quiet: true });
+    await wait(650);
+    if (ps1.disc && run === ps1.seq) {
+      ps1.discTarget = 1;
+      await wait(500);
+      ps1.root.remove(ps1.disc.mesh);
+      ps1.disc = null;
+    }
+    const mesh = await next;
+    if (run !== ps1.seq) return;
+    ps1.disc = { mesh, uri: item.uri };
+    ps1.root.add(mesh);
+    ps1.discY = 1;
+    ps1.discTarget = 0;
+    placeDisc();
+    await wait(750);
+    setLid(false, { quiet: true });
+    await wait(550);
+    screen.staticUntil = t + 0.6;
+    screen.osdUntil = t + 4;
+    onChange?.();
+  }
+  // The disc for whatever is playing, swapped without a show (the lid is shut, so unseen).
+  async function holdDisc(item) {
+    if (!ps1.lid || !item || ps1.disc?.uri === item.uri || ps1.seq?.busy) return;
+    const mesh = await discFor(item);
+    if (ps1.disc) ps1.root.remove(ps1.disc.mesh);
+    ps1.disc = { mesh, uri: item.uri };
+    ps1.root.add(mesh);
+    placeDisc();
+  }
+  function stepConsole(dt) {
+    if (!ps1.lid) return false;
+    const k = 1 - Math.exp(-dt * 7 * ps1.speed);
+    const moving = Math.abs(ps1.target - ps1.open) > 0.001 || Math.abs(ps1.discTarget - ps1.discY) > 0.001;
+    if (!moving) return false;
+    ps1.open += (ps1.target - ps1.open) * k;
+    ps1.discY += (ps1.discTarget - ps1.discY) * (1 - Math.exp(-dt * 5 * ps1.speed));
+    if (Math.abs(ps1.target - ps1.open) <= 0.001) ps1.open = ps1.target;
+    if (Math.abs(ps1.discTarget - ps1.discY) <= 0.001) ps1.discY = ps1.discTarget;
+    poseLid();
+    placeDisc();
+    return true;
+  }
+
   function collect(root) {
     const out = [];
     root.traverse((o) => o.isMesh && out.push(o));
@@ -759,6 +904,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   // Returns true while the corner itself is still moving (so the shelf keeps shadows fresh).
   function update(dt, time, inView = true) {
     t = time;
+    const consoleMoving = stepConsole(dt);
     if (state.y === null) state.y = state.targetY;
     const moving = Math.abs(state.targetY - state.y) > 0.05;
     state.y += (state.targetY - state.y) * (1 - Math.exp(-dt * 5));
@@ -769,7 +915,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     // scene's light count, and with it every material's shader, unchanged.
     glow.visible = tvLight && inView && screen.power > 0.01;
     bias.intensity = inView && tv ? 2.2 : 0;
-    if (!inView) return moving;
+    if (!inView) return moving || consoleMoving;
     board?.update(time, inView, screen.info?.duration);
 
     // Mirror Spotify's Canvas when it has one for this track; otherwise show our own picture.
@@ -837,7 +983,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     const lit = (screen.power * (screen.paused ? 0.5 : 1) * (1 - crt.uniforms.uMotion.value * (0.08 - 0.08 * Math.sin(time * 57)))) * (u.uStatic.value > 0.5 ? 0.7 : 1);
     glow.color.lerp(u.uStatic.value > 0.5 ? STATIC_LIGHT : glowColor, 1 - Math.exp(-dt * 6));
     glow.intensity = 9 * lit;
-    return moving;
+    return moving || consoleMoving;
   }
 
   // Lays the corner out under a shelf whose bottom edge is at `shelfBottom`, against a wall at wallZ.
@@ -898,16 +1044,39 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     get tvCenterY() {
       return state.tvCenterY;
     },
-    // True when the ray hits the TV.
+    // True when the ray hits the TV (the monitor, not the console in front of it).
     hitsTv(raycaster) {
-      return pickables.length > 0 && raycaster.intersectObjects(pickables, false).length > 0;
+      const hit = pickables.length > 0 && raycaster.intersectObjects(pickables, false)[0];
+      return !!hit && !ps1.meshes.includes(hit.object);
+    },
+    // The PlayStation: whether the ray hits it, its lid, and putting discs in.
+    hitsConsole(raycaster) {
+      const hit = ps1.meshes.length > 0 && raycaster.intersectObjects(pickables, false)[0];
+      return !!hit && ps1.meshes.includes(hit.object);
+    },
+    get hasConsole() {
+      return !!ps1.lid;
+    },
+    get lidOpen() {
+      return ps1.target > 0.5;
+    },
+    toggleLid() {
+      setLid(ps1.target < 0.5);
+    },
+    insertDisc,
+    holdDisc,
+    onLidChange(fn) {
+      ps1.lidChanged = fn;
+    },
+    setSpeed(sp) {
+      ps1.speed = sp;
     },
     // What a click on the TV does: a control on the screen ({ zone: 'prev' | 'play' | 'next' |
     // 'seek', frac }), or play/pause anywhere else on the set. Null when the ray misses the TV.
     tvAction(raycaster) {
       if (!pickables.length) return null;
       const hit = raycaster.intersectObjects(pickables, false)[0];
-      if (!hit) return null;
+      if (!hit || ps1.meshes.includes(hit.object)) return null;
       const p = hit.object === screenMesh && hit.uv ? osdPoint(hit.uv) : null;
       return (p && tvZone(p.x, p.y)) || { zone: 'play' };
     },
