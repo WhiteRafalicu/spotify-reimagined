@@ -1,0 +1,65 @@
+# Publishes a release prepared on a branch at a set time: moves main to the branch, tags it, builds
+# the app (models pinned to that commit on jsDelivr, as release.yml does) and creates the GitHub
+# Release with the notes in .github/release-notes/<tag>.md.
+#
+# v0.3.0: Friday 14 November 2026, 19:00 Romania time (17:00 UTC). GitHub can start scheduled runs a
+# few minutes late (or skip one), so it's tried every 15 minutes until 18:45 UTC; the first run
+# publishes, later ones see the tag and stop. "Run workflow" in the Actions tab does it by hand.
+name: scheduled release
+on:
+  schedule:
+    - cron: '0,15,30,45 17,18 14 11 *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: scheduled-release
+env:
+  TAG: v0.3.0
+  BRANCH: release/v0.3.0
+  NOT_BEFORE: '2026-11-14T17:00:00Z'
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Due, and not done yet?
+        id: due
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%s)" -lt "$(date -u -d "$NOT_BEFORE" +%s)" ]; then echo "Not before $NOT_BEFORE"; echo go=no >> "$GITHUB_OUTPUT"; exit 0; fi
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "$TAG is already out"; echo go=no >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo go=yes >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.due.outputs.go == 'yes'
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+      - name: Move main to the release and tag it
+        if: steps.due.outputs.go == 'yes'
+        id: tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge-base --is-ancestor origin/main HEAD || { echo "$BRANCH doesn't contain main: not moving main"; exit 1; }
+          git push origin "HEAD:main"
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag -a "$TAG" -m "$TAG"
+          git push origin "refs/tags/$TAG"
+          echo sha="$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        if: steps.due.outputs.go == 'yes'
+        with:
+          node-version: 22
+      - name: Build
+        if: steps.due.outputs.go == 'yes'
+        run: npm ci && npm run build
+        env:
+          CDS_ASSET_BASE: https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ steps.tag.outputs.sha }}/release-assets
+      - name: Release
+        if: steps.due.outputs.go == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && zip -r ../cd-shelf.zip index.js extension.js manifest.json)
+          notes=".github/release-notes/$TAG.md"
+          title="$(head -1 "$notes" | sed 's/^# //')"
+          gh release create "$TAG" cd-shelf.zip --title "$title" --notes-file "$notes" --verify-tag
