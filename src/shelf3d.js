@@ -574,7 +574,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     look.wall = color;
     const c = color || THEME.wall;
     const old = wall.material.map;
-    wall.material.map = own(wallTexture(c));
+    wall.material.map = wallTexture(c);
     wall.material.needsUpdate = true;
     old?.dispose();
     const bg = color ? new THREE.Color(color).multiplyScalar(0.55) : new THREE.Color(THEME.bg);
@@ -2837,6 +2837,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
         corner?.dispose();
         for (const m of Object.values(inst || {})) m.dispose();
         for (const d of disposables) d.dispose?.();
+        wall.material.map?.dispose();
         renderer.dispose();
         renderer.forceContextLoss();
       };

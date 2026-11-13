@@ -649,6 +649,7 @@ function App() {
     if (!settings.tvCorner) return;
     let alive = true;
     const read = () =>
+      document.hidden ||
       upNext()
         .then((list) => alive && shelf.current?.setQueue(list))
         .catch(() => {});

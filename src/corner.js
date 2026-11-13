@@ -707,13 +707,14 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       try {
         const { blob } = await loadCover(urls, item.name || '', { within: 4000 });
         const bmp = await createImageBitmap(blob);
-        tex = own(new THREE.Texture(bmp));
+        tex = new THREE.Texture(bmp);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.flipY = false;
         tex.needsUpdate = true;
       } catch {}
     }
-    const top = own(new THREE.MeshStandardMaterial({ map: tex, color: tex ? 0xffffff : 0xdedede, metalness: 0.25, roughness: 0.38 }));
+    // Not own()ed: a disc lives until the next one replaces it (dropDisc).
+    const top = new THREE.MeshStandardMaterial({ map: tex, color: tex ? 0xffffff : 0xdedede, metalness: 0.25, roughness: 0.38 });
     const mesh = new THREE.Group();
     const face = new THREE.Mesh(discGeo, top);
     face.position.y = 0.0006;
@@ -724,6 +725,18 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     mesh.position.y += 0.002;
     mesh.traverse((o) => o.isMesh && (o.castShadow = o.receiveShadow = false));
     return mesh;
+  }
+  // Takes the disc out of the console and frees its cover.
+  function dropDisc() {
+    if (!ps1.disc) return;
+    ps1.root.remove(ps1.disc.mesh);
+    ps1.disc.mesh.traverse((o) => {
+      if (o.isMesh && o.material !== discUnder) {
+        o.material.map?.dispose();
+        o.material.dispose();
+      }
+    });
+    ps1.disc = null;
   }
   function placeDisc() {
     if (!ps1.disc) return;
@@ -752,8 +765,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     if (ps1.disc && run === ps1.seq) {
       ps1.discTarget = 1;
       await wait(500);
-      ps1.root.remove(ps1.disc.mesh);
-      ps1.disc = null;
+      dropDisc();
     }
     const mesh = await next;
     if (run !== ps1.seq) return;
@@ -773,7 +785,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   async function holdDisc(item) {
     if (!ps1.lid || !item || ps1.disc?.uri === item.uri || ps1.seq?.busy) return;
     const mesh = await discFor(item);
-    if (ps1.disc) ps1.root.remove(ps1.disc.mesh);
+    dropDisc();
     ps1.disc = { mesh, uri: item.uri };
     ps1.root.add(mesh);
     placeDisc();
@@ -796,25 +808,42 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
   // monitor, the next track on top. Pointing at one names it; clicking it skips there.
   const queuePile = new THREE.Group();
   group.add(queuePile);
+  // A case for the pile, its faces regrouped for three draws instead of six: the four plastic sides,
+  // the lid (top) and the spine (front). Materials: [plastic, top, spine].
   const queueGeo = own(new THREE.BoxGeometry(142, 10.4, 125));
+  {
+    const idx = queueGeo.index.array;
+    const face = (f) => Array.from(idx.slice(f * 6, f * 6 + 6)); // px nx py ny pz nz
+    queueGeo.setIndex([...face(0), ...face(1), ...face(3), ...face(5), ...face(2), ...face(4)]);
+    queueGeo.clearGroups();
+    queueGeo.addGroup(0, 24, 0);
+    queueGeo.addGroup(24, 6, 1);
+    queueGeo.addGroup(30, 6, 2);
+  }
   let queueKey = '';
   let queueSpot = null; // where the pile sits (group space), set by arrange
+  // Cover textures for the pile, the dozen most recent kept (a long session goes through hundreds).
   const queueTex = new Map(); // cover url -> Promise<Texture>
   function coverTexture(url) {
-    if (!queueTex.has(url))
-      queueTex.set(
-        url,
-        loadCover([url], '', { within: 6000 })
-          .then(({ blob }) => createImageBitmap(blob))
-          .then((bmp) => {
-            const tex = own(new THREE.Texture(bmp));
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.flipY = false;
-            tex.needsUpdate = true;
-            return tex;
-          }),
-      );
-    return queueTex.get(url);
+    let p = queueTex.get(url);
+    if (p) queueTex.delete(url);
+    else
+      p = loadCover([url], '', { within: 6000 })
+        .then(({ blob }) => createImageBitmap(blob))
+        .then((bmp) => {
+          const tex = new THREE.Texture(bmp);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.flipY = false;
+          tex.needsUpdate = true;
+          return tex;
+        });
+    queueTex.set(url, p);
+    while (queueTex.size > 12) {
+      const [old, gone] = queueTex.entries().next().value;
+      queueTex.delete(old);
+      gone.then((tex) => tex.dispose()).catch(() => {});
+    }
+    return p;
   }
   // The pile's materials: smoked plastic for the sides, a printed spine facing the room, the cover
   // under the clear lid on top, and a slim highlight along the lid's edge.
@@ -853,7 +882,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     // Fine highlight along the top edge, where the clear lid meets the spine.
     g.fillStyle = 'rgba(255,255,255,0.22)';
     g.fillRect(0, 0, c.width, 2);
-    const t = own(new THREE.CanvasTexture(c));
+    // Not own()ed: disposed when the pile changes (setQueue).
+    const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 8;
     return t;
@@ -928,9 +958,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     for (const m of [...queuePile.children]) {
       if (m === queueCard) continue;
       queuePile.remove(m);
+      m.material[1].dispose();
+      m.material[2].map?.dispose();
       m.material[2].dispose();
-      m.material[4].map?.dispose();
-      m.material[4].dispose();
     }
     // Bottom of the pile first: the next track ends up on top. Each case a little off square, the way
     // a pile of CDs ends up after being picked through.
@@ -938,7 +968,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     [...list].reverse().forEach((entry, i) => {
       const top = new THREE.MeshPhysicalMaterial({ color: 0x2a2c30, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 });
       const spine = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.1 });
-      const m = new THREE.Mesh(queueGeo, [smoke, smoke, top, smoke, spine, smoke]);
+      const m = new THREE.Mesh(queueGeo, [smoke, top, spine]);
       const k = n - 1 - i; // 0 = the top of the pile
       m.position.set(Math.sin(i * 2.3 + 1) * 5 - k * 1.5, 5.2 + i * 10.45, Math.cos(i * 1.7) * 4 + k * 1.2);
       m.rotation.y = 0.32 + Math.sin(i * 3.1 + 0.4) * 0.09;
@@ -1432,6 +1462,10 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     dispose() {
       mirror.tex?.dispose();
       dropSource();
+      dropDisc();
+      setQueue([]);
+      for (const p of queueTex.values()) p.then((tex) => tex.dispose()).catch(() => {});
+      queueTex.clear();
       scene.remove(group);
     },
   };
