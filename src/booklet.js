@@ -14,7 +14,11 @@ const VIEW = BOTTOM - TOP;
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
+// Track rows stop being clickable this far above the page tabs: the open case sways a little, and a
+// click aimed at a tab's top edge mustn't land on the last track and start playing it.
+const ROW_HIT_END = BOTTOM - 14;
 const hitRow = (rows) => (x, y) => {
+  if (y >= ROW_HIT_END) return -1;
   for (const row of rows) if (x >= row.x - 10 && x < row.x + row.w + 10 && y >= row.y && y < row.y + row.h) return row.i;
   return -1;
 };
@@ -35,7 +39,7 @@ function scrollingLayout(tracks, scroll) {
     scrollable: true,
     scroll: sc,
     maxScroll,
-    rowAt: (x, y) => (y < TOP || y >= BOTTOM ? -1 : inRows(x, y)),
+    rowAt: (x, y) => (y < TOP || y >= ROW_HIT_END ? -1 : inRows(x, y)),
   };
 }
 
@@ -158,7 +162,8 @@ const measurer = typeof document !== 'undefined' ? document.createElement('canva
 // Which tab (page index) a point on the page is on, or -1.
 export function tabAt(x, y) {
   if (!measurer) return -1;
-  for (const b of tabBoxes(measurer)) if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return b.i;
+  // A little larger than drawn, so an edge click still turns the page.
+  for (const b of tabBoxes(measurer)) if (x >= b.x - 4 && x < b.x + b.w + 4 && y >= b.y - 10 && y < b.y + b.h + 8) return b.i;
   return -1;
 }
 function drawTabs(g, current, hoverTab) {
