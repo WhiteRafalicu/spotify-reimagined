@@ -503,7 +503,8 @@
   position: absolute;
   z-index: 3;
   left: var(--case-cx, 50%);
-  top: calc(var(--case-bottom, 80%) + 22px);
+  /* Under the case, but never down on the hint line at the foot (wide windows). */
+  top: min(calc(var(--case-bottom, 80%) + 22px), calc(100% - 118px));
   transform: translateX(-50%);
   display: flex;
   align-items: center;

@@ -343,8 +343,12 @@ export function drawBooklet(canvas, album, paper, pg) {
   g.fillText(album.kind === 'playlist' ? tr('kindPlaylist') : ({ single: tr('kindSingle'), ep: tr('kindEp'), compilation: tr('kindCompilation') }[String(album.albumType || '').toLowerCase()] || tr('kindAlbum')), MARGIN, 108);
 
   g.fillStyle = '#fff';
-  g.font = `800 54px ${FONT}`;
-  g.fillText(fit(g, album.name, SIZE - MARGIN * 2 - CONTROLS_W), MARGIN, 168);
+  // The title shrinks (down to 36 px) to fit beside the controls before it's shortened.
+  const titleRoom = SIZE - MARGIN * 2 - CONTROLS_W;
+  let titleSize = 54;
+  g.font = `800 ${titleSize}px ${FONT}`;
+  while (g.measureText(album.name).width > titleRoom && titleSize > 36) g.font = `800 ${(titleSize -= 2)}px ${FONT}`;
+  g.fillText(fit(g, album.name, titleRoom), MARGIN, 168);
   g.fillStyle = 'rgba(255,255,255,0.72)';
   g.font = `500 30px ${FONT}`;
   g.fillText(fit(g, album.artist || '', SIZE - MARGIN * 2 - CONTROLS_W), MARGIN, 210);
