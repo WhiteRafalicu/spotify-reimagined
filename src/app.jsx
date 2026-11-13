@@ -45,11 +45,13 @@ const SORTS = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
-function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin }) {
+function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin, onStep }) {
   const box = useRef(null);
   const stage = useRef(null);
   const nowRef = useRef(now);
   nowRef.current = now;
+  const stepRef = useRef(onStep);
+  stepRef.current = onStep;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   // The case animates itself away only once it's up and running; until then (or if it never gets
@@ -137,6 +139,12 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin 
       });
     const onKey = (e) => {
       if (e.key === 'Escape') close();
+      // Left / right: the previous / next disc on the shelf.
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '');
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !typing) {
+        e.preventDefault();
+        stepRef.current?.(e.key === 'ArrowLeft' ? -1 : 1);
+      }
       if (e.key === ' ' && e.target === document.body) {
         e.preventDefault();
         playOrPause(album);
@@ -423,6 +431,9 @@ function App() {
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [onStage, setOnStage] = useState(null);
+  // The latest of these, for callbacks made once (stepDisc).
+  const onStageRef = useRef(null);
+  const shelvedRef = useRef(null);
   const [hover, setHover] = useState(null);
   const [failed, setFailed] = useState(false);
   const [host, setHost] = useState(null);
@@ -485,11 +496,26 @@ function App() {
     () => sections(shown, sort, { pins: settings.pins || [], dividers: settings.dividers && !query.trim() }),
     [shown, sort, settings.pins, settings.dividers, query],
   );
+  shelvedRef.current = shelved;
+  onStageRef.current = onStage;
 
   const pull = useCallback((item) => {
     shelf.current?.pullOut(item.uri);
     setHover(null);
     setTimeout(() => setOnStage(item), PULL_MS / (SPEEDS[getSettings().speed] || 1));
+  }, []);
+  // From an open case, the previous / next disc in shelf order: this one goes back, that one opens.
+  const stepDisc = useCallback((dir) => {
+    const cur = onStageRef.current;
+    const list = shelvedRef.current?.items || [];
+    const i = cur ? list.findIndex((x) => x.uri === cur.uri) : -1;
+    const next = i >= 0 ? list[i + dir] : null;
+    if (!next) return;
+    shelf.current?.setPaused(false);
+    shelf.current?.putBack();
+    shelf.current?.select(next.uri);
+    shelf.current?.pullOut(next.uri);
+    setOnStage(next);
   }, []);
   // Put the case back, glide down to the TV corner, load the disc into the PlayStation, play it.
   const playInConsole = useCallback(async (item) => {
@@ -779,6 +805,7 @@ function App() {
           item={onStage}
           now={now}
           onConsole={settings.tvCorner && shelf.current?.hasConsole ? playInConsole : null}
+          onStep={stepDisc}
           pinned={(settings.pins || []).includes(onStage.uri)}
           onPin={(item) => {
             const pins = settings.pins || [];

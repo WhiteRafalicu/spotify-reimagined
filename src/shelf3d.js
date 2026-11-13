@@ -2363,7 +2363,12 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   // Keyboard: arrows move a selection along the shelf (up/down by a row), Page Up/Down by three rows,
   // Home/End to the ends, Enter or Space opens the selected case. The selection is the hover.
   let kbIndex = -1;
+  // Keys work anywhere on the page while the shelf shows (no click into it first), except while
+  // typing in a field, with a modifier held (Spotify's own shortcuts), or with a case open.
+  const typing = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   const onKey = (e) => {
+    if (detached || paused || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
+    if (!container.isConnected || !container.offsetParent) return;
     if (e.key === 'Escape' && zoom.target !== 1) {
       e.preventDefault();
       e.stopPropagation();
@@ -2403,7 +2408,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       const y = rowY(c.row);
       if (Math.abs(y - (cam.target + 10)) > view.visH * 0.3) cam.target = clamp(y + 10, bottomY(), topY());
       wake();
-    } else if ((e.key === 'Enter' || e.key === ' ') && hovered && !hovered.gone) {
+    } else if ((e.key === 'Enter' || (e.key === ' ' && container.contains(document.activeElement))) && hovered && !hovered.gone) {
       e.preventDefault();
       const c = hovered;
       pullOut(c.item.uri);
@@ -2411,7 +2416,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     }
   };
   function bind() {
-    container.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey);
     container.addEventListener('pointermove', onMove);
     container.addEventListener('pointerleave', onLeave);
     container.addEventListener('click', onClick);
@@ -2419,7 +2424,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown']) container.addEventListener(ev, wake, { passive: true });
   }
   function unbind() {
-    container.removeEventListener('keydown', onKey);
+    window.removeEventListener('keydown', onKey);
     container.removeEventListener('pointermove', onMove);
     container.removeEventListener('pointerleave', onLeave);
     container.removeEventListener('click', onClick);
@@ -2644,6 +2649,16 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       }
       await corner.insertDisc(item);
       return true;
+    },
+    // Select a disc as the arrow keys would (it slides out and its row comes into view).
+    select(uri) {
+      const c = cases.get(uri);
+      if (!c || c.index < 0) return;
+      kbIndex = c.index;
+      setHovered(c);
+      const y = rowY(c.row);
+      if (Math.abs(y - (cam.target + 10)) > view.visH * 0.3) cam.target = clamp(y + 10, bottomY(), topY());
+      wake();
     },
     // Fly a case out toward the viewer (also used when a case is opened from the player bar).
     pullOut,
