@@ -794,8 +794,8 @@ function App() {
             {t('spotifyHome')}
           </button>
           {settings.tvCorner && (
-            <button className="cds-chip" onClick={() => setTvMode(true)} aria-label={t('tvMode')} title={t('tvModeHint')}>
-              📺
+            <button className="cds-chip" onClick={() => setTvMode(true)} title={t('tvModeHint')}>
+              {t('fullscreen')}
             </button>
           )}
           <button className="cds-chip" onClick={takeShelfie} aria-label={t('shelfie')} title={t('shelfie')}>

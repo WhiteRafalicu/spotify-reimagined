@@ -1443,6 +1443,14 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     hitPool[c.slot].userData.case = c;
     setLayer(c.slot, PLACEHOLDER);
     layerQueue.push(c);
+    // Up next: drops onto the pile from a little above.
+    if (c.pile) {
+      targetFor(c);
+      Object.assign(c.cur, c.target, { y: c.target.y + (c.fresh ? 70 : 0) });
+      for (const p of PROPS) c.vel[p] = 0;
+      c.fresh = false;
+      return true;
+    }
     // First appearance: drop in from a little above (unless it's arriving from a save).
     if (c.fresh && !c.hold) {
       c.fresh = false;
@@ -1862,6 +1870,17 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   function targetFor(c) {
     {
       const tg = c.target;
+      // Up next: lying flat on the table, cover up, spine to the room; leaving, it shrinks away.
+      if (c.pile) {
+        tg.x = c.home.x;
+        tg.y = c.home.y;
+        tg.z = c.home.z;
+        tg.ry = c.pileRy;
+        tg.rz = PILE_RZ;
+        tg.s = c.gone ? 0.001 : 1;
+        tg.lid = 0;
+        return;
+      }
       if (c.gone) {
         tg.x = c.home.x;
         tg.y = c.home.y - 40;
@@ -1957,6 +1976,15 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     zoom.tox = zoom.toy = 0;
     wake();
   }
+
+  // Up next: queue tracks as cases in a pile on the table (see setQueue and step). Lying flat: turned
+  // a quarter about the room's depth, so the case's thickness is its height and the cover faces up.
+  let pile = new Map(); // key -> case, bottom of the pile first
+  const PILE_MAX = 5;
+  const PILE_RZ = Math.PI / 2;
+  const PILE_LIFT = 6;
+  const PILE_STEP = W + 0.5;
+  const _pileAt = new THREE.Vector3();
 
   // TV mode (see step): on, the eased blend toward its framing, and the framed box (refreshed now
   // and then, as models arrive).
@@ -2107,6 +2135,21 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     if (want > capacity && capacity < MAX_SLOTS) ensureCapacity(want);
     for (let i = from; i < to; i++) if (typeof flow[i] === 'string') acquire(cases.get(flow[i]));
     for (const c of [hovered, pulled, spot]) if (c && !c.gone) acquire(c);
+    // Up next: stacked where the corner keeps the pile, the next track on top.
+    const anchor = corner?.queueAnchor(_pileAt);
+    let level = 0;
+    for (const c of pile.values()) {
+      if (c.gone) continue;
+      if (!anchor) {
+        release(c);
+        continue;
+      }
+      c.home.x = anchor.x + c.pileJx;
+      c.home.y = anchor.y + PILE_LIFT + level * PILE_STEP;
+      c.home.z = anchor.z + c.pileJz;
+      level++;
+      acquire(c);
+    }
     // Layer writes for newly slotted cases, a few milliseconds' worth per frame.
     // More of it while the view is still (nothing to keep smooth), less while scrolling.
     const budget = performance.now() + (Math.abs(cam.target - cam.y) > 1 ? 3 : 7);
@@ -2124,10 +2167,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       const c = slotOwner[slot];
       if (!c) continue;
       const row = c.index >= 0 ? c.row : -1;
-      const forced = c === hovered || c === pulled || c === spot || c.hold;
+      const forced = c === hovered || c === pulled || c === spot || c.hold || c.pile;
       if (c.gone && c.cur.s < 0.01) {
         release(c);
-        cases.delete(c.item.uri);
+        if (c.pile) pile.delete(c.pileKey);
+        else cases.delete(c.item.uri);
         continue;
       }
       if (!forced && !c.gone && (row < rowLo || row > rowHi)) {
@@ -2172,6 +2216,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       }
       // Out of its place in the row (or about to be): the full-detail glass.
       const isNear =
+        !c.pile &&
         nearCount < NEAR &&
         (forced || Math.abs(c.cur.z) > 1.5 || Math.abs(c.cur.ry) > 0.01 || c.cur.lid > 0.01 || Math.abs(c.cur.y - c.home.y) > 1.5);
       if (settled && c.shown && c.gen === capGen && !isNear && c.lod !== 'near') continue;
@@ -2209,7 +2254,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       const k = clamp(s, 0, 1) * clamp(1 - lift / 30, 0, 1) * clamp(1 - out / 70, 0, 1);
       const spread = 1 + lift / 50;
       decalMatrix(_dm, _p.set(x, c.home.y - H / 2 - 0.15, z - (D + 16) / 2 + 3), X, Z, (W * c.thick + 14) * spread, D + 16);
-      contacts.setMatrixAt(c.slot, k > 0.01 ? _dm : ZERO);
+      contacts.setMatrixAt(c.slot, k > 0.01 && !c.pile ? _dm : ZERO);
       contacts.setColorAt(c.slot, _k.setRGB(k, k, k));
     }
     // Draw only up to the highest slot in use.
@@ -2353,7 +2398,15 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     if (!pointer.over) return null;
     raycaster.setFromCamera(pointer.ndc, camera);
     const meshes = [];
-    for (const c of slotOwner) if (c && !c.gone && c.shown) meshes.push(hitPool[c.slot]);
+    for (const c of slotOwner) if (c && !c.gone && c.shown && !c.pile) meshes.push(hitPool[c.slot]);
+    const hit = raycaster.intersectObjects(meshes, false)[0];
+    return hit ? hit.object.userData.case : null;
+  }
+  // The Up next case under the pointer (the raycaster already set), or null.
+  function pickPile() {
+    const meshes = [];
+    for (const c of pile.values()) if (c.slot >= 0 && !c.gone && c.shown) meshes.push(hitPool[c.slot]);
+    if (!meshes.length) return null;
     const hit = raycaster.intersectObjects(meshes, false)[0];
     return hit ? hit.object.userData.case : null;
   }
@@ -2376,7 +2429,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     if (!hovered && corner) {
       raycaster.setFromCamera(pointer.ndc, camera);
       // A case in the Up next pile.
-      const queued = corner.queueAt(raycaster);
+      const queued = pickPile()?.queue || null;
       if (queued !== overQueue) {
         overQueue = queued;
         container.style.cursor = queued ? 'pointer' : '';
@@ -2766,9 +2819,32 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     get hasTv() {
       return !!corner?.hasTv;
     },
-    // Up next on the table: [{ name, artist, cover, ref }], the next track first.
+    // Up next on the table: [{ name, artist, cover, ref }], the next track first. They're shelf
+    // cases (same glass, cover and spine), lying in a pile.
     setQueue(entries) {
-      corner?.setQueue(entries);
+      const list = (entries || []).slice(0, PILE_MAX);
+      const keys = list.map((e, i) => `${e.ref?.uid || e.ref?.uri || i}`);
+      for (const [key, c] of pile) if (!keys.includes(key) && !c.gone) (c.gone = true), c.slot < 0 && pile.delete(key);
+      // Bottom of the pile first: insertion order is the stacking order, so rebuild it.
+      const next = new Map();
+      [...list].reverse().forEach((entry) => {
+        const key = `${entry.ref?.uid || entry.ref?.uri}`;
+        let c = pile.get(key);
+        if (!c || c.gone) {
+          c = makeCase({ kind: 'queue', uri: `queue:${key}`, name: entry.name, artist: entry.artist, thumb: entry.cover, art: entry.cover });
+          c.pile = true;
+          c.pileKey = key;
+          // A little off square, the way a pile of CDs ends up after being picked through.
+          const h = [...key].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7);
+          c.pileRy = 0.32 + ((h & 255) / 255 - 0.5) * 0.22;
+          c.pileJx = (((h >> 8) & 255) / 255 - 0.5) * 10;
+          c.pileJz = (((h >> 16) & 255) / 255 - 0.5) * 8;
+        }
+        c.queue = entry;
+        next.set(key, c);
+      });
+      for (const [key, c] of pile) if (c.gone) next.set(key, c);
+      pile = next;
       wake();
     },
     // Debug: TV mode's state and framed box.

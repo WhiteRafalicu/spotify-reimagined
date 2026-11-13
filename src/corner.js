@@ -804,216 +804,19 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     return true;
   }
 
-  // Up next: the queue's next few tracks as cases lying in a pile on the table, left of the
-  // monitor, the next track on top. Pointing at one names it; clicking it skips there.
+  // Up next: where the pile of queue cases lies on the table, at the monitor's front-left corner
+  // (set by arrange). The shelf draws the cases there, as shelf cases (see shelf3d setQueue).
   const queuePile = new THREE.Group();
   group.add(queuePile);
-  // A case for the pile, its faces regrouped for three draws instead of six: the four plastic sides,
-  // the lid (top) and the spine (front). Materials: [plastic, top, spine].
-  const queueGeo = own(new THREE.BoxGeometry(142, 10.4, 125));
-  {
-    const idx = queueGeo.index.array;
-    const face = (f) => Array.from(idx.slice(f * 6, f * 6 + 6)); // px nx py ny pz nz
-    queueGeo.setIndex([...face(0), ...face(1), ...face(3), ...face(5), ...face(2), ...face(4)]);
-    queueGeo.clearGroups();
-    queueGeo.addGroup(0, 24, 0);
-    queueGeo.addGroup(24, 6, 1);
-    queueGeo.addGroup(30, 6, 2);
-  }
-  let queueKey = '';
-  let queueSpot = null; // where the pile sits (group space), set by arrange
-  // Cover textures for the pile, the dozen most recent kept (a long session goes through hundreds).
-  const queueTex = new Map(); // cover url -> Promise<Texture>
-  function coverTexture(url) {
-    let p = queueTex.get(url);
-    if (p) queueTex.delete(url);
-    else
-      p = loadCover([url], '', { within: 6000 })
-        .then(({ blob }) => createImageBitmap(blob))
-        .then((bmp) => {
-          const tex = new THREE.Texture(bmp);
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.flipY = false;
-          tex.needsUpdate = true;
-          return tex;
-        });
-    queueTex.set(url, p);
-    while (queueTex.size > 12) {
-      const [old, gone] = queueTex.entries().next().value;
-      queueTex.delete(old);
-      gone.then((tex) => tex.dispose()).catch(() => {});
-    }
-    return p;
-  }
-  // The pile's materials: smoked plastic for the sides, a printed spine facing the room, the cover
-  // under the clear lid on top, and a slim highlight along the lid's edge.
-  const smoke = own(new THREE.MeshPhysicalMaterial({ color: 0x16181b, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04, metalness: 0 }));
-  // A printed spine: the cover's colours as a stripe, the track in white, the artist in grey.
-  function spineTexture(entry, img) {
-    const c = document.createElement('canvas');
-    c.width = 1024;
-    c.height = 76;
-    const g = c.getContext('2d');
-    g.fillStyle = '#121316';
-    g.fillRect(0, 0, c.width, c.height);
-    if (img) g.drawImage(img, 0, img.height * 0.4, img.width, img.height * 0.2, 0, 0, 120, c.height);
-    else {
-      g.fillStyle = '#2a2d33';
-      g.fillRect(0, 0, 120, c.height);
-    }
-    const shade = g.createLinearGradient(100, 0, 150, 0);
-    shade.addColorStop(0, 'rgba(18,19,22,0)');
-    shade.addColorStop(1, '#121316');
-    g.fillStyle = shade;
-    g.fillRect(100, 0, 50, c.height);
-    g.textBaseline = 'middle';
-    const font = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
-    g.font = `800 40px ${font}`;
-    let name = (entry.name || '').toUpperCase();
-    while (name.length > 1 && g.measureText(name).width > 560) name = name.slice(0, -2) + '…';
-    g.fillStyle = '#ffffff';
-    g.fillText(name, 156, 40);
-    const used = g.measureText(name).width;
-    g.font = `600 32px ${font}`;
-    g.fillStyle = 'rgba(255,255,255,0.55)';
-    let artist = entry.artist || '';
-    while (artist.length > 1 && g.measureText(artist).width > 1000 - 190 - used) artist = artist.slice(0, -2) + '…';
-    g.fillText(artist, 156 + used + 22, 41);
-    // Fine highlight along the top edge, where the clear lid meets the spine.
-    g.fillStyle = 'rgba(255,255,255,0.22)';
-    g.fillRect(0, 0, c.width, 2);
-    // Not own()ed: disposed when the pile changes (setQueue).
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 8;
-    return t;
-  }
-  // The handwritten card leaning on the pile.
-  let queueCard = null;
-  function makeQueueCard() {
-    const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 160;
-    const g = c.getContext('2d');
-    const draw = () => {
-      g.fillStyle = '#f4efe2';
-      g.fillRect(0, 0, 256, 160);
-      g.strokeStyle = 'rgba(200,60,60,0.5)';
-      g.lineWidth = 2;
-      g.beginPath();
-      g.moveTo(0, 38);
-      g.lineTo(256, 38);
-      g.stroke();
-      g.strokeStyle = 'rgba(70,110,170,0.25)';
-      for (let y = 70; y < 160; y += 30) {
-        g.beginPath();
-        g.moveTo(0, y);
-        g.lineTo(256, y);
-        g.stroke();
-      }
-      g.fillStyle = '#1d2a52';
-      const label = tr('upNext').toUpperCase();
-      let size = 58;
-      const font = (sz) => `${sz}px "CDS Permanent Marker", "Permanent Marker", "Comic Sans MS", cursive`;
-      g.font = font(size);
-      while (g.measureText(label).width > 226 && size > 30) g.font = font((size -= 2));
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.save();
-      g.translate(128, 100);
-      g.rotate(-0.06);
-      g.fillText(label, 0, 0);
-      g.restore();
-      tex.needsUpdate = true;
-      onChange?.();
-    };
-    const tex = own(new THREE.CanvasTexture(c));
-    tex.colorSpace = THREE.SRGBColorSpace;
-    draw();
-    // The marker hand may arrive after the card is made (the whiteboard loads it): write the card again
-    // once it's there.
-    const marker = () => [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker' && f.status === 'loaded');
-    let inMarker = marker();
-    const again = () => {
-      if (inMarker || !marker()) return;
-      inMarker = true;
-      draw();
-      document.fonts.removeEventListener('loadingdone', again);
-    };
-    if (!inMarker) {
-      document.fonts.addEventListener('loadingdone', again);
-      for (const ms of [800, 2500, 6000, 12000]) setTimeout(again, ms);
-    }
-    const card = new THREE.Mesh(own(new THREE.PlaneGeometry(72, 45)), own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide })));
-    card.castShadow = true;
-    return card;
-  }
-  // entries: [{ name, artist, cover, ref }], next first.
-  function setQueue(entries) {
-    if (furniture !== 'table') return;
-    const list = (entries || []).slice(0, 5);
-    const key = list.map((e) => `${e.ref?.uid || e.ref?.uri}`).join('|');
-    if (key === queueKey) return;
-    queueKey = key;
-    for (const m of [...queuePile.children]) {
-      if (m === queueCard) continue;
-      queuePile.remove(m);
-      m.material[1].dispose();
-      m.material[2].map?.dispose();
-      m.material[2].dispose();
-    }
-    // Bottom of the pile first: the next track ends up on top. Each case a little off square, the way
-    // a pile of CDs ends up after being picked through.
-    const n = list.length;
-    [...list].reverse().forEach((entry, i) => {
-      const top = new THREE.MeshPhysicalMaterial({ color: 0x2a2c30, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 });
-      const spine = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.1 });
-      const m = new THREE.Mesh(queueGeo, [smoke, top, spine]);
-      const k = n - 1 - i; // 0 = the top of the pile
-      m.position.set(Math.sin(i * 2.3 + 1) * 5 - k * 1.5, 5.2 + i * 10.45, Math.cos(i * 1.7) * 4 + k * 1.2);
-      m.rotation.y = 0.32 + Math.sin(i * 3.1 + 0.4) * 0.09;
-      m.castShadow = m.receiveShadow = true;
-      m.userData.queue = entry;
-      queuePile.add(m);
-      const done = (img) => {
-        spine.map = spineTexture(entry, img);
-        spine.needsUpdate = true;
-        onChange?.();
-      };
-      if (entry.cover)
-        coverTexture(entry.cover)
-          .then((tex) => {
-            top.map = tex;
-            top.color.set(0xffffff);
-            top.needsUpdate = true;
-            done(tex.image);
-          })
-          .catch(() => done(null));
-      else done(null);
-    });
-    if (n && !queueCard) {
-      queueCard = makeQueueCard();
-      queuePile.add(queueCard);
-    }
-    if (queueCard) {
-      queueCard.visible = n > 0;
-      // Propped up beside the pile, facing the room.
-      queueCard.position.set(150, 20, 58);
-      queueCard.rotation.set(-0.28, -0.22, 0.04);
-    }
-    placeQueue();
-    onChange?.();
-  }
+  let queueSpot = null;
   function placeQueue() {
-    if (!queueSpot) return;
-    queuePile.position.copy(queueSpot);
-    queuePile.visible = queuePile.children.some((m) => m.userData.queue);
+    if (queueSpot) queuePile.position.copy(queueSpot);
   }
-  // The queue entry under the ray, or null.
-  function queueAt(raycaster) {
-    if (!queuePile.visible || !queuePile.children.length) return null;
-    const hit = raycaster.intersectObjects(queuePile.children, false).find((h) => h.object.userData.queue);
-    return hit ? hit.object.userData.queue : null;
+  // The pile's spot in world space (into out), or null where there's no table and TV.
+  function queueAnchor(out) {
+    if (!queueSpot || !tv || furniture !== 'table') return null;
+    group.updateMatrixWorld();
+    return queuePile.getWorldPosition(out);
   }
 
   function collect(root) {
@@ -1414,8 +1217,7 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     get hasTv() {
       return !!tv;
     },
-    setQueue,
-    queueAt,
+    queueAnchor,
     get hasConsole() {
       return !!ps1.lid;
     },
@@ -1463,9 +1265,6 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       mirror.tex?.dispose();
       dropSource();
       dropDisc();
-      setQueue([]);
-      for (const p of queueTex.values()) p.then((tex) => tex.dispose()).catch(() => {});
-      queueTex.clear();
       scene.remove(group);
     },
   };
