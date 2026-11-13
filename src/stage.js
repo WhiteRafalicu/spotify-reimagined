@@ -335,6 +335,11 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
     track(new THREE.ShaderMaterial({ uniforms: shadowOf, vertexShader: BACKDROP_VERT, fragmentShader: BACKDROP_FRAG })),
   );
   backdrop.position.z = BACKDROP_Z;
+  // Drawn first and never in the way: a case turned by hand swings its lid back past the wall's
+  // depth, and the wall used to cut the booklet off along a diagonal.
+  backdrop.renderOrder = -100;
+  backdrop.material.depthWrite = false;
+  backdrop.material.depthTest = false;
   opaque.add(backdrop);
   const depthOnly = track(new THREE.MeshBasicMaterial({ colorWrite: false }));
   glass.add(copyQuad);
@@ -712,7 +717,7 @@ export function createStage(container, album, { getSpin, getPlaying, onOpen, onP
       }
     }
     const ctl = getControls?.();
-    if (ctl && (ctl.live !== page.ctl.live || ctl.playing !== page.ctl.playing || ctl.shuffle !== page.ctl.shuffle)) {
+    if (ctl && (ctl.live !== page.ctl.live || ctl.playing !== page.ctl.playing || ctl.shuffle !== page.ctl.shuffle || ctl.repeat !== page.ctl.repeat)) {
       page.ctl = ctl;
       redrawPage();
     }
