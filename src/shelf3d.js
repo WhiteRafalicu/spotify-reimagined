@@ -29,6 +29,7 @@ const SLIM = 0.52;
 const FAT = 1.75;
 const BOX_NAME = /\b(box set|boxset|anthology|the complete|collection|discography)\b/i;
 function thickFor(item) {
+  if (item.kind === 'liked') return FAT;
   if (item.kind !== 'album') return 1;
   if (item.albumType === 'single' || item.albumType === 'ep') return SLIM;
   if (item.albumType === 'compilation' || BOX_NAME.test(item.name || '')) return FAT;
@@ -164,9 +165,44 @@ function drawCdrSpine(g, w, h, item, img) {
   g.restore();
 }
 
+// Liked Songs: a gold foil spine, the title stamped in dark ink, a heart at the top.
+function drawGoldSpine(g, w, h, item) {
+  const foil = g.createLinearGradient(0, 0, w, 0);
+  foil.addColorStop(0, '#a87a22');
+  foil.addColorStop(0.35, '#f3dc94');
+  foil.addColorStop(0.55, '#fff3c4');
+  foil.addColorStop(1, '#b58a32');
+  g.fillStyle = foil;
+  g.fillRect(0, 0, w, h);
+  g.globalAlpha = 0.08;
+  for (let y = 0; y < h; y += 4) {
+    g.fillStyle = y % 8 ? '#000' : '#fff';
+    g.fillRect(0, y, w, 1);
+  }
+  g.globalAlpha = 1;
+  g.save();
+  g.translate(w / 2, 0);
+  g.rotate(Math.PI / 2);
+  const k = w / 64;
+  g.scale(k, k);
+  g.textBaseline = 'middle';
+  g.fillStyle = '#4a320a';
+  g.font = '34px "SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
+  g.fillText('♥', 30, 2);
+  g.font = `800 32px "SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif`;
+  const name = fitText(g, item.name.toUpperCase(), h / k - 150);
+  g.fillText(name, 76, 2);
+  const used = g.measureText(name).width;
+  g.font = `600 26px "SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif`;
+  g.fillStyle = 'rgba(74,50,10,0.7)';
+  g.fillText(fitText(g, item.artist || '', h / k - 110 - used), 76 + used + 18, 2);
+  g.restore();
+}
+
 function drawSpine(canvas, item, img) {
   const [w, h] = SPINE_PX;
   const g = canvas.getContext('2d');
+  if (item.kind === 'liked') return drawGoldSpine(g, w, h, item);
   if (item.kind === 'playlist') return drawCdrSpine(g, w, h, item, img);
   g.fillStyle = item.kind === 'playlist' ? '#3a3d44' : '#1c1c1f';
   g.fillRect(0, 0, w, h);
@@ -443,7 +479,7 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, onTvMode, volume, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, onTvMode, onQueuePick, volume, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
@@ -451,7 +487,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1, wall: '' };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
-  const handlers = { onPick, onHover, onTv, onLid, onLost, onTvMode, volume };
+  const handlers = { onPick, onHover, onTv, onLid, onLost, onTvMode, onQueuePick, volume };
   // The marker hand for the CD-R spines and divider tabs (the whiteboard loads it too; whichever is
   // first adds it). Anything drawn before it arrived is redrawn once it has, whoever loaded it.
   // (fonts.check() is true for a family that isn't there at all, so look for the face itself.)
@@ -2339,6 +2375,15 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     if (!pulled) setHovered(pick());
     if (!hovered && corner) {
       raycaster.setFromCamera(pointer.ndc, camera);
+      // A case in the Up next pile.
+      const queued = corner.queueAt(raycaster);
+      if (queued !== overQueue) {
+        overQueue = queued;
+        container.style.cursor = queued ? 'pointer' : '';
+        handlers.onHover?.(queued ? { name: `${tr('upNext')} · ${queued.name}`, artist: `${queued.artist} · ${tr('upNextHint')}` } : null);
+        if (queued) overTv = overConsole = false;
+      }
+      if (queued) return;
       const onTvNow = corner.hitsTv(raycaster);
       const onConsoleNow = !onTvNow && corner.hasConsole && corner.hitsConsole(raycaster);
       corner.pointTv(onTvNow ? raycaster : null);
@@ -2365,17 +2410,23 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   let overTv = false;
   let overConsole = false;
   let overControl = null;
+  let overQueue = null;
   const panelLabel = (c) => (c === 'power' ? tr('panelPower') : c === 'reset' ? tr('panelReset') : `${tr(c.startsWith('vol') ? 'panelVol' : `panel_${c.slice(0, -1)}`)} ${c.endsWith('+') ? '+' : '−'}`);
   const onLeave = () => {
     pointer.over = false;
     setHovered(null);
     corner?.pointTv(null);
+    overQueue = null;
   };
   const onClick = (e) => {
     if (pulled || e.button !== 0) return;
     onMove(e);
     const c = pick();
     if (!c) {
+      if (overQueue && corner) {
+        handlers.onQueuePick?.(overQueue.ref);
+        return;
+      }
       if (overConsole && corner) {
         corner.toggleLid();
         handlers.onHover?.({ name: tr('console'), artist: tr(corner.lidOpen ? 'consoleClose' : 'consoleOpen') });
@@ -2714,6 +2765,11 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     },
     get hasTv() {
       return !!corner?.hasTv;
+    },
+    // Up next on the table: [{ name, artist, cover, ref }], the next track first.
+    setQueue(entries) {
+      corner?.setQueue(entries);
+      wake();
     },
     // Debug: TV mode's state and framed box.
     tvDebug: () => ({ on: tv.on, blend: +tv.blend.toFixed(3), box: tv.box && { min: tv.box.min.toArray().map(Math.round), max: tv.box.max.toArray().map(Math.round) }, cam: camera.position.toArray().map(Math.round) }),

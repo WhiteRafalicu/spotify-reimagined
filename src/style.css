@@ -640,9 +640,9 @@
 }
 
 /* TV mode: the room only, the header and captions out of the way; one way out, top left. */
+/* (The caption stays: it names what the pointer is on, the Up next cases and the TV's buttons.) */
 .cds-world.is-tv .cds-head,
-.cds-world.is-tv .cds-settings,
-.cds-world.is-tv .cds-caption {
+.cds-world.is-tv .cds-settings {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.4s;

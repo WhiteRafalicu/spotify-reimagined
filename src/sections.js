@@ -31,12 +31,14 @@ function playedLabel(iso, now) {
 
 // list: already filtered and sorted. Returns { items, dividers: [{ at, label }] }.
 export function sections(list, sort, { pins = [], dividers = true } = {}) {
-  const pinned = pins.map((uri) => list.find((i) => i.uri === uri)).filter(Boolean);
+  // Liked Songs leads the shelf, then the pinned discs.
+  const liked = list.filter((i) => i.kind === 'liked');
+  const pinned = [...liked, ...pins.map((uri) => list.find((i) => i.uri === uri && i.kind !== 'liked')).filter(Boolean)];
   const pinnedSet = new Set(pinned.map((i) => i.uri));
   const rest = list.filter((i) => !pinnedSet.has(i.uri));
   const items = [...pinned, ...rest];
   const out = [];
-  if (pinned.length) out.push({ at: 0, label: '★' });
+  if (pinned.length > liked.length) out.push({ at: liked.length, label: '★' });
   if (!dividers || list.length < MIN_FOR_DIVIDERS) return { items, dividers: out };
   const now = Date.now();
   let key;

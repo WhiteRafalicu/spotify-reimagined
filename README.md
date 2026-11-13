@@ -56,6 +56,7 @@ spicetify apply
 | Click outside the case or press **Esc** | Put it back |
 | Hover the TV | Its screen shows controls: previous, play/pause, next and a seek bar |
 | **Play in the console** (on an open case) | The camera glides to the TV corner and the disc goes into the PlayStation, which then plays it |
+| The cases piled beside the TV | **Up next**: the next tracks in your queue, the next on top; click one to play it now |
 | Click the PlayStation | Open its lid to see the disc (pauses the music); click again to close it and play on |
 | The monitor's front panel | **VOL ±** sets Spotify's volume; **BRIGHT, CONTRAST, CHROMA, PHASE, APERTURE ±** adjust the picture (kept between sessions, **RESET** undoes them); **POWER** turns the picture off and on |
 | Click a control on the TV / elsewhere on the TV | Do that / play or pause |
@@ -65,6 +66,7 @@ spicetify apply
 | **← / →** in an open case | Put it back and open the previous / next disc |
 | **Enter** or **Space** | Open the selected disc |
 
+- **Liked Songs** is a gold box set at the front of the shelf: open it for every song you've liked.
 - **The shelf is your library and your home page.** Spotify opens on it; the library sidebar is
   hidden. "Spotify home" in the header gets you to the original Home.
 - **It stays in sync.** Save an album anywhere in Spotify and its disc slides onto the shelf; remove

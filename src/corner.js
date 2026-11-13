@@ -556,6 +556,12 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       }
       stack.position.set(-w / 4 - 6, legs + slab, d - 118);
     } else {
+      // Up next: on the table at the monitor's front-left corner, beside the ashtray.
+      if (tv) {
+        const screenLeft = tv.position.x + tvSpec.screenX - tvSpec.screenW / 2;
+        queueSpot = new THREE.Vector3(Math.max(-lay.halfW + 85, screenLeft - 40), T, front - 70);
+        placeQueue();
+      }
       // Table: the PS2 beside the TV, facing the room, with its controller resting on top.
       contact(0, 0.3, lay.back + lay.depth / 2, lay.halfW * 2 + 40, lay.depth + 40, 0.42);
       let ps2Top = T;
@@ -784,6 +790,75 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     poseLid();
     placeDisc();
     return true;
+  }
+
+  // Up next: the queue's next few tracks as cases lying in a pile on the table, left of the
+  // monitor, the next track on top. Pointing at one names it; clicking it skips there.
+  const queuePile = new THREE.Group();
+  group.add(queuePile);
+  const queueGeo = own(new THREE.BoxGeometry(142, 10.4, 125));
+  let queueKey = '';
+  let queueSpot = null; // where the pile sits (group space), set by arrange
+  const queueTex = new Map(); // cover url -> Promise<Texture>
+  function coverTexture(url) {
+    if (!queueTex.has(url))
+      queueTex.set(
+        url,
+        loadCover([url], '', { within: 6000 })
+          .then(({ blob }) => createImageBitmap(blob))
+          .then((bmp) => {
+            const tex = own(new THREE.Texture(bmp));
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.flipY = false;
+            tex.needsUpdate = true;
+            return tex;
+          }),
+      );
+    return queueTex.get(url);
+  }
+  // entries: [{ name, artist, cover, ref }], next first.
+  function setQueue(entries) {
+    if (furniture !== 'table') return;
+    const list = (entries || []).slice(0, 5);
+    const key = list.map((e) => `${e.ref?.uid || e.ref?.uri}`).join('|');
+    if (key === queueKey) return;
+    queueKey = key;
+    for (const m of [...queuePile.children]) {
+      queuePile.remove(m);
+      m.material[2].dispose();
+    }
+    // Bottom of the pile first: the next track ends up on top.
+    [...list].reverse().forEach((entry, i) => {
+      const top = new THREE.MeshPhysicalMaterial({ color: 0x333333, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.06 });
+      const m = new THREE.Mesh(queueGeo, [plastic, plastic, top, plastic, plastic, plastic]);
+      m.position.set(Math.sin(i * 2.3 + 1) * 7, 5.2 + i * 10.6, Math.cos(i * 1.7) * 6);
+      m.rotation.y = 0.35 + Math.sin(i * 3.1) * 0.12;
+      m.castShadow = m.receiveShadow = true;
+      m.userData.queue = entry;
+      queuePile.add(m);
+      if (entry.cover)
+        coverTexture(entry.cover)
+          .then((tex) => {
+            top.map = tex;
+            top.color.set(0xffffff);
+            top.needsUpdate = true;
+            onChange?.();
+          })
+          .catch(() => {});
+    });
+    placeQueue();
+    onChange?.();
+  }
+  function placeQueue() {
+    if (!queueSpot) return;
+    queuePile.position.copy(queueSpot);
+    queuePile.visible = queuePile.children.length > 0;
+  }
+  // The queue entry under the ray, or null.
+  function queueAt(raycaster) {
+    if (!queuePile.visible || !queuePile.children.length) return null;
+    const hit = raycaster.intersectObjects(queuePile.children, false)[0];
+    return hit ? hit.object.userData.queue : null;
   }
 
   function collect(root) {
@@ -1184,6 +1259,8 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     get hasTv() {
       return !!tv;
     },
+    setQueue,
+    queueAt,
     get hasConsole() {
       return !!ps1.lid;
     },

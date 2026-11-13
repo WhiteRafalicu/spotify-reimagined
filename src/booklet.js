@@ -345,7 +345,7 @@ export function drawBooklet(canvas, album, paper, pg) {
   g.textBaseline = 'alphabetic';
   g.fillStyle = 'rgba(255,255,255,0.55)';
   g.font = `600 22px ${FONT}`;
-  g.fillText(album.kind === 'playlist' ? tr('kindPlaylist') : ({ single: tr('kindSingle'), ep: tr('kindEp'), compilation: tr('kindCompilation') }[String(album.albumType || '').toLowerCase()] || tr('kindAlbum')), MARGIN, 108);
+  g.fillText(album.kind === 'liked' ? tr('kindLiked') : album.kind === 'playlist' ? tr('kindPlaylist') : ({ single: tr('kindSingle'), ep: tr('kindEp'), compilation: tr('kindCompilation') }[String(album.albumType || '').toLowerCase()] || tr('kindAlbum')), MARGIN, 108);
 
   g.fillStyle = '#fff';
   // The title shrinks (down to 36 px) to fit beside the controls before it's shortened.
@@ -412,7 +412,7 @@ export function drawBooklet(canvas, album, paper, pg) {
     g.fillStyle = accent || '#fff';
     const name = fit(g, t.name, room);
     g.fillText(name, left, mid);
-    if (album.kind === 'playlist' && t.artist) {
+    if (album.kind !== 'album' && t.artist) {
       const used = g.measureText(name + '  ').width;
       if (used < room - 40) {
         g.font = `500 ${size * 0.85}px ${FONT}`;

@@ -38,12 +38,104 @@ export async function loadLibrary(onProgress) {
       onProgress(toItems(raw.albums, raw.playlists));
     });
   };
-  await Promise.all([
+  const [, , liked] = await Promise.all([
     allContents('0', (a) => ((raw.albums = a), progress())).then((a) => (raw.albums = a)),
     allContents('2', (p) => ((raw.playlists = p), progress())).then((p) => (raw.playlists = p)),
+    likedItem().catch(() => null),
   ]);
   if (pending) cancelAnimationFrame(pending);
-  return toItems(raw.albums, raw.playlists);
+  return [...(liked ? [liked] : []), ...toItems(raw.albums, raw.playlists)];
+}
+
+// Liked Songs, as a gold box set: the collection's own context URI (so it plays like Spotify's
+// Liked Songs page), a gold cover drawn here, and the account's name on the spine.
+async function likedItem() {
+  const first = await Spicetify.Platform.LibraryAPI.getTracks({ limit: 1, offset: 0 });
+  if (!first?.items?.length) return null;
+  const user = await Spicetify.Platform.UserAPI.getUser();
+  if (!user?.username) return null;
+  const cover = goldCover();
+  return {
+    kind: 'liked',
+    uri: `spotify:user:${user.username}:collection`,
+    name: t('likedSongs'),
+    artist: user.displayName || user.username,
+    thumb: cover,
+    art: cover,
+  };
+}
+
+// A gold foil cover with an embossed heart.
+let gold = null;
+function goldCover() {
+  if (gold) return gold;
+  const c = document.createElement('canvas');
+  c.width = c.height = 640;
+  const g = c.getContext('2d');
+  const foil = g.createLinearGradient(0, 0, 640, 640);
+  foil.addColorStop(0, '#f7e3a1');
+  foil.addColorStop(0.28, '#c9a043');
+  foil.addColorStop(0.5, '#fff1bf');
+  foil.addColorStop(0.72, '#b8892f');
+  foil.addColorStop(1, '#e9cd7c');
+  g.fillStyle = foil;
+  g.fillRect(0, 0, 640, 640);
+  // Brushed-metal streaks.
+  g.globalAlpha = 0.07;
+  for (let y = 0; y < 640; y += 3) {
+    g.fillStyle = y % 6 ? '#000' : '#fff';
+    g.fillRect(0, y, 640, 1);
+  }
+  g.globalAlpha = 1;
+  const heart = (x, y, s) => {
+    g.beginPath();
+    g.moveTo(x, y + s * 0.3);
+    g.bezierCurveTo(x, y, x - s * 0.5, y - s * 0.05, x - s * 0.5, y + s * 0.3);
+    g.bezierCurveTo(x - s * 0.5, y + s * 0.6, x, y + s * 0.8, x, y + s);
+    g.bezierCurveTo(x, y + s * 0.8, x + s * 0.5, y + s * 0.6, x + s * 0.5, y + s * 0.3);
+    g.bezierCurveTo(x + s * 0.5, y - s * 0.05, x, y, x, y + s * 0.3);
+    g.closePath();
+  };
+  // Embossed: a dark offset below, a light one above, then the heart in deeper gold.
+  for (const [dx, dy, col] of [
+    [4, 6, 'rgba(90,60,10,0.45)'],
+    [-3, -3, 'rgba(255,248,220,0.7)'],
+  ]) {
+    heart(320 + dx, 150 + dy, 300);
+    g.fillStyle = col;
+    g.fill();
+  }
+  heart(320, 150, 300);
+  const deep = g.createLinearGradient(170, 150, 470, 450);
+  deep.addColorStop(0, '#d8b056');
+  deep.addColorStop(1, '#a87a22');
+  g.fillStyle = deep;
+  g.fill();
+  g.fillStyle = 'rgba(70,45,5,0.85)';
+  g.textAlign = 'center';
+  g.font = '800 54px "SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
+  g.fillText(t('likedSongs').toUpperCase(), 320, 545);
+  gold = c.toDataURL('image/jpeg', 0.92);
+  return gold;
+}
+
+// All of Liked Songs (in pages; the API's total is unreliable), shaped like a playlist's tracks.
+async function likedTracks() {
+  const L = Spicetify.Platform.LibraryAPI;
+  const out = [];
+  for (let offset = 0; offset < 10000; offset += 500) {
+    const r = await L.getTracks({ limit: 500, offset });
+    const items = r?.items || [];
+    out.push(...items);
+    if (items.length < 500) break;
+  }
+  return out.map((t, at) => ({
+    at,
+    uri: t.uri,
+    name: t.name,
+    artist: (t.artists || []).map((a) => a.name).join(', '),
+    ms: t.duration?.milliseconds,
+  }));
 }
 
 
@@ -109,6 +201,7 @@ export function itemFromPlayer(uri) {
 }
 
 export async function loadTracks(item) {
+  if (item.kind === 'liked') return likedTracks();
   if (item.kind === 'album') {
     const G = Spicetify.GraphQL;
     const r = await G.Request(G.Definitions.queryAlbumTracks, { uri: item.uri, offset: 0, limit: 300 });
@@ -137,6 +230,7 @@ export async function loadTracks(item) {
 // The liner notes: for an album its release, label and copyright lines; for a playlist its
 // description and who made it. Null when there's nothing to say.
 export async function loadNotes(item) {
+  if (item.kind === 'liked') return { owner: item.artist, description: t('likedNotes') };
   if (item.kind === 'album') {
     const G = Spicetify.GraphQL;
     const r = await G.Request(G.Definitions.getAlbum, { uri: item.uri, locale: '', offset: 0, limit: 1 });
@@ -154,6 +248,26 @@ export async function loadNotes(item) {
   const m = await Spicetify.Platform.PlaylistAPI.getMetadata(item.uri);
   const strip = (h) => (h || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").trim();
   return { description: strip(m?.description), owner: m?.owner?.displayName || m?.owner?.name || item.artist || '' };
+}
+
+// What plays next: the tracks you queued, then the rest of the album or playlist. Each entry keeps
+// the queue's own object (ref) for skipTo.
+export async function upNext(limit = 5) {
+  const q = await Spicetify.Platform.PlayerAPI.getQueue();
+  return [...(q?.queued || []), ...(q?.nextUp || [])]
+    .filter((x) => x?.uri && !/^spotify:(delimiter|meta)/.test(x.uri))
+    .slice(0, limit)
+    .map((x) => ({
+      name: x.name || '',
+      artist: (x.artists || []).map((a) => a.name).join(', '),
+      cover: toHttps(x.album?.images?.[0]?.url),
+      ref: x,
+    }));
+}
+
+// Jump to a track in the queue.
+export function skipTo(ref) {
+  return Spicetify.Platform.PlayerAPI.skipTo(ref);
 }
 
 export function nowPlaying() {
@@ -192,6 +306,7 @@ export function playOrPause(item) {
 }
 
 export function openPage(item) {
+  if (item.kind === 'liked') return Spicetify.Platform.History.push('/collection/tracks');
   const [, type, id] = item.uri.split(':');
   Spicetify.Platform.History.push(`/${type}/${id}`);
 }

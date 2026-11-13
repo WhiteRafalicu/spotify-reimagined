@@ -3,7 +3,7 @@ import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
 import { sections } from './sections';
 import { createStage } from './stage';
-import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes, shuffle, skip } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes, shuffle, skip, upNext, skipTo } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
@@ -174,11 +174,13 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin,
           {t('back')}
         </button>
         <button className="cds-chip" onClick={() => openPage(item)}>
-          {item.kind === 'playlist' ? t('openPlaylist') : t('openAlbum')}
+          {item.kind === 'album' ? t('openAlbum') : t('openPlaylist')}
         </button>
-        <button className={`cds-chip${pinned ? ' is-on' : ''}`} onClick={() => onPin(item)} aria-pressed={pinned}>
-          {pinned ? t('pinned') : t('pin')}
-        </button>
+        {item.kind !== 'liked' && (
+          <button className={`cds-chip${pinned ? ' is-on' : ''}`} onClick={() => onPin(item)} aria-pressed={pinned}>
+            {pinned ? t('pinned') : t('pin')}
+          </button>
+        )}
       </div>
       {/* The console button and the hint under it move as one, so they can never overlap. */}
       <div className={`cds-under${onConsole && ready ? ' has-console' : ''}`}>
@@ -509,7 +511,7 @@ function App() {
     if (!items) return [];
     const q = query.trim().toLowerCase();
     return items
-      .filter((i) => filter === 'all' || i.kind === filter)
+      .filter((i) => filter === 'all' || i.kind === filter || (filter === 'playlist' && i.kind === 'liked'))
       .filter((i) => !q || i.name.toLowerCase().includes(q) || i.artist.toLowerCase().includes(q))
       .sort(SORTS[sort]);
   }, [items, filter, sort, query]);
@@ -577,6 +579,7 @@ function App() {
         }
       },
       onTvMode: (on) => setTvMode(on),
+      onQueuePick: (ref) => skipTo(ref),
       onTv: ({ zone, frac } = {}) => {
         const P = Spicetify.Player;
         if (zone === 'prev') P.back();
@@ -640,6 +643,23 @@ function App() {
   useEffect(() => {
     shelf.current?.setEffects({ sway: settings.sway, cursorLight: settings.cursorLight, speed: SPEEDS[settings.speed] || 1, size: SIZES[settings.size] || 1, lyricsMode: settings.lyrics, wall: settings.wall || '', glass: GLASS[settings.glass] || GLASS.classic, daylight: !!settings.daylight });
   }, [settings.sway, settings.cursorLight, settings.speed, settings.size, settings.lyrics, settings.wall, settings.glass, settings.daylight, host, cornerKey]);
+  // Up next on the table: the queue, read every few seconds and on every track change.
+  useEffect(() => {
+    if (!settings.tvCorner) return;
+    let alive = true;
+    const read = () =>
+      upNext()
+        .then((list) => alive && shelf.current?.setQueue(list))
+        .catch(() => {});
+    read();
+    const timer = setInterval(read, 4000);
+    Spicetify.Player.addEventListener('songchange', read);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      Spicetify.Player.removeEventListener('songchange', read);
+    };
+  }, [settings.tvCorner, host, cornerKey]);
   useEffect(() => {
     if (!items) return;
     shelf.current?.setItems(shelved.items, { arrivals: arrivals.current, dividers: shelved.dividers });
