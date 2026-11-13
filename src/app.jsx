@@ -3,7 +3,7 @@ import { copyDiagnostics } from './diagnostics';
 import { createShelf } from './shelf3d';
 import { sections } from './sections';
 import { createStage } from './stage';
-import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes, shuffle, skip, upNext, skipTo } from './library';
+import { recentAlbums, retry, canvasFor, itemFromPlayer, loadLibrary, loadTracks, lyricsFor, nowPlaying, nowTrack, openPage, playFrom, playOrPause, createPlayerClock, lyricsRoute, loadNotes, shuffle, skip, cycleRepeat, upNext, skipTo } from './library';
 import assets from './assets.gen';
 import css from './style.css';
 import { DEFAULTS, GLASS, SIZES, SPEEDS, WALLS, getSettings, onSettings, setSettings } from './settings';
@@ -27,8 +27,8 @@ function usePlayer() {
     const update = () => setNow(nowPlaying());
     Spicetify.Player.addEventListener('songchange', update);
     Spicetify.Player.addEventListener('onplaypause', update);
-    // Shuffle has no event; it can be changed from the player bar too.
-    const poll = setInterval(() => setNow((n) => (n.shuffle === !!Spicetify.Player.getShuffle?.() ? n : nowPlaying())), 1000);
+    // Shuffle and repeat have no event; they can be changed from the player bar too.
+    const poll = setInterval(() => setNow((n) => (n.shuffle === !!Spicetify.Player.getShuffle?.() && n.repeat === (Spicetify.Player.getRepeat?.() ?? 0) ? n : nowPlaying())), 1000);
     return () => {
       clearInterval(poll);
       Spicetify.Player.removeEventListener('songchange', update);
@@ -85,12 +85,13 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin,
       // The controls on the booklet.
       getControls: () => {
         const n = nowRef.current;
-        return { live: n.context === item.uri, playing: n.playing, shuffle: n.shuffle };
+        return { live: n.context === item.uri, playing: n.playing, shuffle: n.shuffle, repeat: n.repeat };
       },
       onControl: (id) => {
         if (id === 'play') playOrPause(album);
         else if (id === 'shuffle') shuffle(item);
         else if (id === 'skip' && nowRef.current.context === item.uri) skip();
+        else if (id === 'repeat') cycleRepeat();
       },
       onDismiss: onClose,
       onReady: () => {

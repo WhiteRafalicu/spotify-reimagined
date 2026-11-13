@@ -56,14 +56,15 @@ const FONT = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif'
 const CTL_Y = 168;
 // Spaced so the play button never crowds its neighbours, and kept in from the page's right edge,
 // which sits close to the case's hinge.
-const CTL_GAP = 34;
-const CTL_SKIP_X = SIZE - MARGIN - 40;
+const CTL_GAP = 26;
+const CTL_R = SIZE - MARGIN - 34; // the rightmost control's centre
 const CONTROLS = [
-  { id: 'shuffle', x: CTL_SKIP_X - 30 - CTL_GAP - 80 - CTL_GAP - 30, r: 30 },
-  { id: 'play', x: CTL_SKIP_X - 30 - CTL_GAP - 40, r: 40 },
-  { id: 'skip', x: CTL_SKIP_X, r: 30 },
+  { id: 'shuffle', x: CTL_R - 30 - CTL_GAP - 30 - CTL_GAP - 40 - 40 - CTL_GAP - 30, r: 30 },
+  { id: 'play', x: CTL_R - 30 - CTL_GAP - 30 - CTL_GAP - 40, r: 40 },
+  { id: 'skip', x: CTL_R - 30 - CTL_GAP - 30, r: 30 },
+  { id: 'repeat', x: CTL_R, r: 30 },
 ];
-const CONTROLS_W = SIZE - MARGIN - (CTL_SKIP_X - 30 - CTL_GAP - 80 - CTL_GAP - 60) + 20; // what the title keeps clear of
+const CONTROLS_W = SIZE - MARGIN - (CONTROLS[0].x - 30) + 20; // what the title keeps clear of
 // Which control a point on the page is on, or null.
 export function controlAt(x, y) {
   for (const c of CONTROLS) if (Math.hypot(x - c.x, y - CTL_Y) <= c.r + 6) return c.id;
@@ -110,7 +111,50 @@ function drawControls(g, ctl = {}, hover) {
     g.lineWidth = 3;
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    if (c.id === 'skip') {
+    if (c.id === 'repeat') {
+      // A loop of two arrows; lit when repeat is on, with a "1" when it repeats the one track.
+      const on = ctl.repeat > 0;
+      g.strokeStyle = g.fillStyle = on ? '#1ed760' : hover === 'repeat' ? '#fff' : 'rgba(255,255,255,0.75)';
+      g.beginPath();
+      g.moveTo(-11, 2);
+      g.lineTo(-11, -7);
+      g.lineTo(9, -7);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(5, -11);
+      g.lineTo(10, -7);
+      g.lineTo(5, -3);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(11, -2);
+      g.lineTo(11, 7);
+      g.lineTo(-9, 7);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(-5, 3);
+      g.lineTo(-10, 7);
+      g.lineTo(-5, 11);
+      g.stroke();
+      if (ctl.repeat === 2) {
+        // Repeat one: a green badge with a 1, on the loop's top right.
+        g.beginPath();
+        g.arc(12, -12, 8, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#000';
+        g.font = `800 12px ${FONT}`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText('1', 12, -11.5);
+        g.textAlign = 'left';
+        g.textBaseline = 'alphabetic';
+        g.fillStyle = '#1ed760';
+      }
+      if (on) {
+        g.beginPath();
+        g.arc(0, 19, 2.5, 0, Math.PI * 2);
+        g.fill();
+      }
+    } else if (c.id === 'skip') {
       g.beginPath();
       g.moveTo(-9, -11);
       g.lineTo(5, 0);
