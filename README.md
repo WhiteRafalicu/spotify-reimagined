@@ -13,10 +13,10 @@ video and a whiteboard writes out the lyrics in marker, in time with the music.
 
 | | |
 | --- | --- |
-| ![The shelf: a row of CD jewel cases with their spines out on walnut shelves](docs/screenshots/shelf.jpg) | ![An open jewel case: the tracklist printed in the booklet, and the disc in the tray](docs/screenshots/open-case.jpg) |
-| The shelf is your library | Click a disc to open it: tracklist, notes, lyrics |
-| ![A closed jewel case seen up close, its cover behind the glass](docs/screenshots/closed-case.jpg) | |
-| Every case is real refracting glass | |
+| ![The shelf: jewel cases spine-out on walnut shelves, sorted by year behind divider cards, playlists as handwritten CD-Rs](docs/screenshots/shelf.jpg) | ![An open jewel case: the tracklist printed in the booklet with shuffle, play and skip beside the title, and the disc in the tray](docs/screenshots/open-case.jpg) |
+| Your library on the shelf, with record-store dividers and CD-R playlists | Open a disc: play, shuffle or skip from the booklet, or drop it in the PlayStation |
+| ![The booklet's Notes page: release date, label, length and copyright lines](docs/screenshots/notes.jpg) | |
+| Turn the booklet's pages: tracks, liner notes, lyrics | |
 
 ## Install
 
