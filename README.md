@@ -9,6 +9,15 @@ shelf and swings open: the cover is the booklet, the tracklist is printed inside
 spins while it plays. Scroll past the last shelf to a table where an old TV plays the song's Canvas
 video and a whiteboard writes out the lyrics in marker, in time with the music.
 
+![The TV corner: a Sony PVM monitor showing the song's video, a PlayStation, and a whiteboard writing out the lyrics](docs/screenshots/tv-corner.jpg)
+
+| | |
+| --- | --- |
+| ![The shelf: a row of CD jewel cases with their spines out on walnut shelves](docs/screenshots/shelf.jpg) | ![An open jewel case: the tracklist printed in the booklet, and the disc in the tray](docs/screenshots/open-case.jpg) |
+| The shelf is your library | Click a disc to open it: tracklist, notes, lyrics |
+| ![A closed jewel case seen up close, its cover behind the glass](docs/screenshots/closed-case.jpg) | |
+| Every case is real refracting glass | |
+
 ## Install
 
 You need the Spotify desktop app with [Spicetify](https://spicetify.app/docs/getting-started)
