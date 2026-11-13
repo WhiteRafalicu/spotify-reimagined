@@ -638,3 +638,28 @@
     animation: none;
   }
 }
+
+/* TV mode: the room only, the header and captions out of the way; one way out, top left. */
+.cds-world.is-tv .cds-head,
+.cds-world.is-tv .cds-settings,
+.cds-world.is-tv .cds-caption {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+.cds-tv-exit {
+  position: absolute;
+  z-index: 20;
+  top: 16px;
+  left: 16px;
+  opacity: 0.35;
+  backdrop-filter: blur(10px);
+  transition: opacity 0.2s;
+}
+.cds-tv-exit:hover,
+.cds-tv-exit:focus-visible {
+  opacity: 1;
+}
+.cds-world:fullscreen {
+  background: #000;
+}

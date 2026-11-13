@@ -59,8 +59,10 @@ spicetify apply
 | Click the PlayStation | Open its lid to see the disc (pauses the music); click again to close it and play on |
 | The monitor's front panel | **VOL ±** sets Spotify's volume; **BRIGHT, CONTRAST, CHROMA, PHASE, APERTURE ±** adjust the picture (kept between sessions, **RESET** undoes them); **POWER** turns the picture off and on |
 | Click a control on the TV / elsewhere on the TV | Do that / play or pause |
+| **📺** in the header, or **T** | TV mode: the TV and the whiteboard fill the screen (full screen where Spotify allows); **Esc** to leave |
 | **Ctrl** + scroll (or pinch) | Zoom in where the pointer is, to read the spines; **Esc** zooms back out |
-| Arrow keys / Page Up / Page Down / Home / End | Move between discs (click the shelf first) |
+| Arrow keys / Page Up / Page Down / Home / End | Move between discs (no need to click the shelf first) |
+| **← / →** in an open case | Put it back and open the previous / next disc |
 | **Enter** or **Space** | Open the selected disc |
 
 - **The shelf is your library and your home page.** Spotify opens on it; the library sidebar is

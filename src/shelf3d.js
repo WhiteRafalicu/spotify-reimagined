@@ -443,7 +443,7 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, volume, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
+export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, onLost, onTvMode, volume, canvasFor, lyricsFor, getProgress, assets = {}, corner: withCorner = true, dust: dustOn = true, sway: swayOn = true, cursorLight: cursorLightOn = true, theme = 'walnut', onQualityDrop }) {
   const THEME = THEMES[theme] || THEMES.walnut;
   let dustPref = dustOn;
   // sway: the camera drifts and leans toward the pointer. cursorLight: a lamp follows the pointer.
@@ -451,7 +451,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const look = { sway: swayOn, cursorLight: cursorLightOn, speed: 1, size: 1, wall: '' };
   // The shelf can be parked when its page closes and re-attached to a new container (see detach).
   let container = initialContainer;
-  const handlers = { onPick, onHover, onTv, onLid, onLost, volume };
+  const handlers = { onPick, onHover, onTv, onLid, onLost, onTvMode, volume };
   // The marker hand for the CD-R spines and divider tabs (the whiteboard loads it too; whichever is
   // first adds it). Anything drawn before it arrived is redrawn once it has, whoever loaded it.
   // (fonts.check() is true for a family that isn't there at all, so look for the face itself.)
@@ -1922,6 +1922,15 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     wake();
   }
 
+  // TV mode (see step): on, the eased blend toward its framing, and the framed box (refreshed now
+  // and then, as models arrive).
+  const tv = { on: false, blend: 0, box: null, boxAt: -10 };
+  const _tvc = new THREE.Vector3();
+  const _tvs = new THREE.Vector3();
+  const _tvp = new THREE.Vector3();
+  const _tvq = new THREE.Vector3();
+  const _tvl = new THREE.Vector3();
+
   function step(dt) {
     t += dt;
     {
@@ -1935,7 +1944,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     cam.y += (cam.target - cam.y) * (1 - Math.exp(-dt * 6));
     // No leaning while zoomed in: it would slide small things (the TV's buttons) out from under the
     // pointer.
-    const lean = pointer.over && look.sway && zoom.target === 1 && zoom.z < 1.02;
+    const lean = pointer.over && look.sway && zoom.target === 1 && zoom.z < 1.02 && !tv.on && tv.blend === 0;
     // Nor in the TV corner, where the targets are small; it fades out as the camera gets there.
     const leanK = lean ? 1 - clamp(dollyF * 1.5, 0, 1) : 0;
     const px = pointer.x * leanK;
@@ -1968,6 +1977,35 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     camZ = FRONT_Z + (camZ - FRONT_Z) / zoom.z;
     camera.position.set(camX + cam.x + drift + zoom.ox, cam.y + camDY + py * 14 + (reducedMotion || !look.sway ? 0 : Math.sin(t * 0.17) * 3) + zoom.oy, camZ);
     camera.lookAt(aimNow.x + zoom.ox, aimNow.y + zoom.oy, 0);
+    // TV mode: the camera eases to straight in front of the TV set and the whiteboard, close enough
+    // that they fill the view.
+    const tvGoal = tv.on ? 1 : 0;
+    if (tv.blend !== tvGoal) {
+      tv.blend += (tvGoal - tv.blend) * (1 - Math.exp(-dt * 3.2));
+      if (Math.abs(tvGoal - tv.blend) < 0.002) tv.blend = tvGoal;
+      wake();
+    }
+    if (tv.blend > 0 && corner) {
+      if (!tv.box || t > tv.boxAt + 1) {
+        tv.box = corner.showBox();
+        tv.boxAt = t;
+      }
+      if (tv.box) {
+        const c = tv.box.getCenter(_tvc);
+        const size = tv.box.getSize(_tvs);
+        const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+        // A little more room below than above, for the console and the table in front.
+        const h = size.y * 1.3;
+        const d = Math.max(h / 2 / tanHalf, (size.x * 1.08) / 2 / (tanHalf * camera.aspect));
+        const e = tv.blend * tv.blend * (3 - 2 * tv.blend);
+        c.y -= size.y * 0.12;
+        _tvp.set(c.x, c.y, tv.box.max.z + d);
+        _tvq.copy(camera.position).lerp(_tvp, e);
+        camera.position.copy(_tvq);
+        _tvl.set(aimNow.x + zoom.ox, aimNow.y + zoom.oy, 0).lerp(_tvc.set(c.x, c.y, tv.box.min.z), e);
+        camera.lookAt(_tvl);
+      }
+    }
     camera.updateMatrixWorld();
 
     // The key follows the scroll, snapped to whole shadow texels so its shadows don't shimmer.
@@ -2356,6 +2394,7 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   };
   const onWheel = (e) => {
     e.preventDefault();
+    if (tv.on) return;
     if (e.ctrlKey) return zoomAt(e, Math.exp(-e.deltaY * 0.0025));
     const perPx = view.visH / view.h / zoom.z;
     cam.target = clamp(cam.target - e.deltaY * perPx * 0.9, bottomY(), topY());
@@ -2369,6 +2408,17 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
   const onKey = (e) => {
     if (detached || paused || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
     if (!container.isConnected || !container.offsetParent) return;
+    if (tv.on) {
+      if (e.key === 'Escape' || e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        handlers.onTvMode?.(false);
+      }
+      return;
+    }
+    if ((e.key === 't' || e.key === 'T') && corner?.hasTv) {
+      e.preventDefault();
+      return handlers.onTvMode?.(true);
+    }
     if (e.key === 'Escape' && zoom.target !== 1) {
       e.preventDefault();
       e.stopPropagation();
@@ -2650,6 +2700,23 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
       await corner.insertDisc(item);
       return true;
     },
+    // TV mode on or off: the camera eases in to frame the TV set and the whiteboard.
+    setTvMode(on) {
+      tv.on = !!on && !!corner?.hasTv;
+      if (tv.on) {
+        resetZoom();
+        cam.target = bottomY();
+        setHovered(null);
+      }
+      tv.box = null;
+      wake();
+      return tv.on;
+    },
+    get hasTv() {
+      return !!corner?.hasTv;
+    },
+    // Debug: TV mode's state and framed box.
+    tvDebug: () => ({ on: tv.on, blend: +tv.blend.toFixed(3), box: tv.box && { min: tv.box.min.toArray().map(Math.round), max: tv.box.max.toArray().map(Math.round) }, cam: camera.position.toArray().map(Math.round) }),
     // Select a disc as the arrow keys would (it slides out and its row comes into view).
     select(uri) {
       const c = cases.get(uri);

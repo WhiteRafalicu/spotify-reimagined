@@ -437,6 +437,25 @@ function App() {
   // The latest of these, for callbacks made once (stepDisc).
   const onStageRef = useRef(null);
   const shelvedRef = useRef(null);
+  // TV mode: the TV set and the whiteboard fill the view (and the screen, where Spotify allows).
+  const [tvMode, setTvModeState] = useState(false);
+  const tvModeRef = useRef(false);
+  const worldBox = useRef(null);
+  const setTvMode = useCallback((on) => {
+    on = !!shelf.current?.setTvMode(on);
+    tvModeRef.current = on;
+    setTvModeState(on);
+    if (on) {
+      setShowSettings(false);
+      worldBox.current?.requestFullscreen?.().catch(() => {});
+    } else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, []);
+  // Leaving full screen (Esc, F11) leaves TV mode too.
+  useEffect(() => {
+    const onFs = () => !document.fullscreenElement && tvModeRef.current && setTvMode(false);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
   const [hover, setHover] = useState(null);
   const [failed, setFailed] = useState(false);
   const [host, setHost] = useState(null);
@@ -557,6 +576,7 @@ function App() {
           P.play();
         }
       },
+      onTvMode: (on) => setTvMode(on),
       onTv: ({ zone, frac } = {}) => {
         const P = Spicetify.Player;
         if (zone === 'prev') P.back();
@@ -704,7 +724,12 @@ function App() {
   }, [items, host]);
 
   const world = (
-    <div className={`cds-world is-${settings.theme}`}>
+    <div className={`cds-world is-${settings.theme}${tvMode ? ' is-tv' : ''}`} ref={worldBox}>
+      {tvMode && (
+        <button className="cds-chip cds-tv-exit" onClick={() => setTvMode(false)}>
+          {t('tvModeExit')}
+        </button>
+      )}
       <div
         className="cds-world-gl"
         ref={worldRef}
@@ -746,6 +771,11 @@ function App() {
           <button className="cds-chip" onClick={() => Spicetify.Platform.History.push('/', { cdsHome: true })}>
             {t('spotifyHome')}
           </button>
+          {settings.tvCorner && (
+            <button className="cds-chip" onClick={() => setTvMode(true)} aria-label={t('tvMode')} title={t('tvModeHint')}>
+              📺
+            </button>
+          )}
           <button className="cds-chip" onClick={takeShelfie} aria-label={t('shelfie')} title={t('shelfie')}>
             📷
           </button>

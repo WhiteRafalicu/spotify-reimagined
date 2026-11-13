@@ -1108,6 +1108,21 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     place,
     update,
     // What the close-up has to fit across: the TV and whatever stands beside it, at the TV's front.
+    // The TV set (monitor, console, pads) and the whiteboard, in world space: what TV mode frames.
+    // The monitor and the whiteboard: the plane TV mode fills (the console, in front of them, comes
+    // into the bottom of the frame on its own).
+    showBox() {
+      const box = new THREE.Box3();
+      const part = new THREE.Box3();
+      tv?.traverse((o) => {
+        if (!o.isMesh || !o.visible) return;
+        const name = o.material?.name || '';
+        if (!/^(pvm_|CRTScreen)/.test(name)) return;
+        box.union(part.setFromObject(o));
+      });
+      if (board?.group?.visible) box.expandByObject(board.group);
+      return box.isEmpty() ? null : box;
+    },
     get frame() {
       const tvX = tvCenterX();
       const left = tvX - tvSpec.w / 2 - 40;
@@ -1165,6 +1180,9 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     hitsConsole(raycaster) {
       const hit = ps1.meshes.length > 0 && raycaster.intersectObjects(pickables, false)[0];
       return !!hit && ps1.meshes.includes(hit.object);
+    },
+    get hasTv() {
+      return !!tv;
     },
     get hasConsole() {
       return !!ps1.lid;
