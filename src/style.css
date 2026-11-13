@@ -498,14 +498,41 @@
   transform: none;
 }
 
-/* "Play in the console": a small grey console under the case (see Stage, --case-* from stage.js). */
-.cds-console {
+/* Under the case: the console button with the hint line beneath it (see Stage, --case-* from
+   stage.js). Without the console, just the hint, at the foot as before. */
+.cds-under {
   position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+/* With the console, the pair waits (hidden) until the case has said where its bottom edge is. */
+.cds-under.has-console {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.cds-stage.has-case-box .cds-under.has-console {
+  opacity: 1;
+  bottom: auto;
+  /* Right under the case, but the pair always ends at least 18 px above the foot. */
+  top: min(calc(var(--case-bottom, 80%) + 20px), calc(100% - 118px));
+}
+.cds-under > * {
+  pointer-events: auto;
+}
+.cds-under .cds-hint {
+  position: static;
+  pointer-events: none;
+}
+/* "Play in the console": a small grey console. */
+.cds-console {
+  position: relative;
   z-index: 3;
-  left: var(--case-cx, 50%);
-  /* Under the case, but never down on the hint line at the foot (wide windows). */
-  top: min(calc(var(--case-bottom, 80%) + 22px), calc(100% - 118px));
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -527,11 +554,11 @@
   pointer-events: auto;
 }
 .cds-console:hover {
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateY(-2px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -3px 0 rgba(0, 0, 0, 0.12), 0 14px 30px rgba(0, 0, 0, 0.5);
 }
 .cds-console:active {
-  transform: translateX(-50%) translateY(1px);
+  transform: translateY(1px);
 }
 /* Ridges along the back, like the real thing's vents. */
 .cds-console::before {

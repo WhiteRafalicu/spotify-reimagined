@@ -180,27 +180,30 @@ function Stage({ item, now, effects, onClose, onShown, onConsole, pinned, onPin,
           {pinned ? t('pinned') : t('pin')}
         </button>
       </div>
-      {onConsole && ready && (
-        // A little grey console under the case: its lid lifts and the disc (this album's cover)
-        // spins when you point at it.
-        <button className="cds-console" onClick={() => onConsole(item)} title={t('playInConsoleHint')}>
-          <span className="cds-console-lid">
-            <span className="cds-console-disc" style={{ backgroundImage: item.art || item.thumb ? `url("${item.art || item.thumb}")` : undefined }} />
-          </span>
-          <span className="cds-console-label">
-            <b>{t('playInConsole')}</b>
-            <small>{t('playInConsoleHint')}</small>
-          </span>
-          <span className="cds-console-led" />
-        </button>
-      )}
-      <p className="cds-hint">
-        {failed
-          ? t('caseFailed')
-          : open
-            ? t('hintOpen')
-            : t('hintClosed')}
-      </p>
+      {/* The console button and the hint under it move as one, so they can never overlap. */}
+      <div className={`cds-under${onConsole && ready ? ' has-console' : ''}`}>
+        {onConsole && ready && (
+          // A little grey console under the case: its lid lifts and the disc (this album's cover)
+          // spins when you point at it.
+          <button className="cds-console" onClick={() => onConsole(item)} title={t('playInConsoleHint')}>
+            <span className="cds-console-lid">
+              <span className="cds-console-disc" style={{ backgroundImage: item.art || item.thumb ? `url("${item.art || item.thumb}")` : undefined }} />
+            </span>
+            <span className="cds-console-label">
+              <b>{t('playInConsole')}</b>
+              <small>{t('playInConsoleHint')}</small>
+            </span>
+            <span className="cds-console-led" />
+          </button>
+        )}
+        <p className="cds-hint">
+          {failed
+            ? t('caseFailed')
+            : open
+              ? t('hintOpen')
+              : t('hintClosed')}
+        </p>
+      </div>
     </div>,
     document.body,
   );
