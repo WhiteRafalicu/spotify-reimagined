@@ -212,10 +212,18 @@ export async function loadTracks(item) {
       ms: t.duration?.totalMilliseconds,
     }));
   }
-  const r = await Spicetify.Platform.PlaylistAPI.getContents(item.uri, { limit: 5000 });
+  // In pages of 5000 (a single request stops there), up to the playlist's total.
+  const PA = Spicetify.Platform.PlaylistAPI;
+  const all = [];
+  for (let offset = 0; offset < 100000; offset += 5000) {
+    const r = await PA.getContents(item.uri, { offset, limit: 5000 });
+    const items = r?.items || [];
+    all.push(...items);
+    if (items.length < 5000 || all.length >= (r?.totalLength ?? Infinity)) break;
+  }
   // Keep each track's position in the playlist: skipping non-track items would otherwise shift
   // the index the player is asked to start from.
-  return (r?.items || [])
+  return all
     .map((t, at) => ({ t, at }))
     .filter(({ t }) => t.type === 'track' || t.type === 'episode')
     .map(({ t, at }) => ({
@@ -277,6 +285,7 @@ export function nowPlaying() {
     track: d?.item?.uri || null,
     playing: !!Spicetify.Player.isPlaying(),
     shuffle: !!Spicetify.Player.getShuffle?.(),
+    repeat: Spicetify.Player.getRepeat?.() ?? 0, // 0 off, 1 the album or playlist, 2 the track
   };
 }
 
@@ -287,6 +296,13 @@ export async function shuffle(item) {
   if (nowPlaying().context === item.uri) return P.setShuffle(!P.getShuffle());
   P.setShuffle(true);
   return P.playUri(item.uri);
+}
+
+// Repeat, as Spotify's own button: off -> repeat all -> repeat one -> off. It's the player's setting,
+// not this disc's, so it works whatever is playing.
+export function cycleRepeat() {
+  const P = Spicetify.Player;
+  P.setRepeat(((P.getRepeat?.() ?? 0) + 1) % 3);
 }
 
 // Skip to the next track (only offered while this album or playlist is playing).
