@@ -1108,12 +1108,13 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
 
   // Adaptive render scale. GPU time per frame comes from a timer query where the driver offers one,
   // otherwise from the gap between busy frames. Too slow: scale down; plenty of headroom: back up.
-  const adapt = { samples: [], cooldownUntil: 0, ext: null, open: null, pending: [], strikes: 0 };
+  const adapt = { samples: [], cooldownUntil: 0, ext: null, open: null, pending: [], strikes: 0, frames: 0, idleFrames: 0 };
   {
     const gl = renderer.getContext();
     adapt.ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   }
   const GPU_BUDGET_MS = 1000 / 60 * 0.75;
+  const IDLE_BUDGET_MS = 1000 / 30 * 0.6;
   // dbg.budget lets a test pretend the GPU is slower than it is.
   const budget = () => dbg.budget || GPU_BUDGET_MS;
   function adaptBegin() {
@@ -1140,10 +1141,17 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
         gl.deleteQuery(qq);
       }
     } else if (!throttled && frameGapMs < 200) adapt.samples.push(frameGapMs * 0.8);
+    adapt.frames++;
+    if (throttled) adapt.idleFrames++;
     if (adapt.samples.length < 45) return;
     const sorted = adapt.samples.sort((a, b) => a - b);
     const median = sorted[sorted.length >> 1];
+    // Mostly idle frames (30 fps, 15 unfocused: the TV corner playing on its own): there's twice the
+    // time for each, so they're judged against a 30 fps budget and may render sharper.
+    const idle = adapt.idleFrames > adapt.frames * 0.8;
     adapt.samples = [];
+    adapt.frames = adapt.idleFrames = 0;
+    const budget = () => (dbg.budget || (idle ? IDLE_BUDGET_MS : GPU_BUDGET_MS));
     const now = performance.now();
     if (now < adapt.cooldownUntil) return;
     let next = scale;
@@ -1160,6 +1168,8 @@ export function createShelf(initialContainer, { onPick, onHover, onTv, onLid, on
     }
     adapt.strikes = 0;
     if (median > budget() * 1.15) next = Math.max(0.5, scale * Math.sqrt(budget() / median));
+    // Idle with room to spare: straight to the sharpest scale that fits (GPU time grows with pixels).
+    else if (idle && median < budget() * 0.8 && scale < 1) next = Math.min(1, scale * Math.sqrt((budget() * 0.85) / median));
     else if (median < budget() * 0.45 && scale < 1) next = Math.min(1, scale * 1.15);
     next = Math.round(next * 20) / 20;
     if (next !== scale) {
