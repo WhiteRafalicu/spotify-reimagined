@@ -816,6 +816,108 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
       );
     return queueTex.get(url);
   }
+  // The pile's materials: smoked plastic for the sides, a printed spine facing the room, the cover
+  // under the clear lid on top, and a slim highlight along the lid's edge.
+  const smoke = own(new THREE.MeshPhysicalMaterial({ color: 0x16181b, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04, metalness: 0 }));
+  // A printed spine: the cover's colours as a stripe, the track in white, the artist in grey.
+  function spineTexture(entry, img) {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 76;
+    const g = c.getContext('2d');
+    g.fillStyle = '#121316';
+    g.fillRect(0, 0, c.width, c.height);
+    if (img) g.drawImage(img, 0, img.height * 0.4, img.width, img.height * 0.2, 0, 0, 120, c.height);
+    else {
+      g.fillStyle = '#2a2d33';
+      g.fillRect(0, 0, 120, c.height);
+    }
+    const shade = g.createLinearGradient(100, 0, 150, 0);
+    shade.addColorStop(0, 'rgba(18,19,22,0)');
+    shade.addColorStop(1, '#121316');
+    g.fillStyle = shade;
+    g.fillRect(100, 0, 50, c.height);
+    g.textBaseline = 'middle';
+    const font = '"SpotifyMixUI", "CircularSp", "Helvetica Neue", Arial, sans-serif';
+    g.font = `800 40px ${font}`;
+    let name = (entry.name || '').toUpperCase();
+    while (name.length > 1 && g.measureText(name).width > 560) name = name.slice(0, -2) + '…';
+    g.fillStyle = '#ffffff';
+    g.fillText(name, 156, 40);
+    const used = g.measureText(name).width;
+    g.font = `600 32px ${font}`;
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    let artist = entry.artist || '';
+    while (artist.length > 1 && g.measureText(artist).width > 1000 - 190 - used) artist = artist.slice(0, -2) + '…';
+    g.fillText(artist, 156 + used + 22, 41);
+    // Fine highlight along the top edge, where the clear lid meets the spine.
+    g.fillStyle = 'rgba(255,255,255,0.22)';
+    g.fillRect(0, 0, c.width, 2);
+    const t = own(new THREE.CanvasTexture(c));
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  }
+  // The handwritten card leaning on the pile.
+  let queueCard = null;
+  function makeQueueCard() {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 160;
+    const g = c.getContext('2d');
+    const draw = () => {
+      g.fillStyle = '#f4efe2';
+      g.fillRect(0, 0, 256, 160);
+      g.strokeStyle = 'rgba(200,60,60,0.5)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(0, 38);
+      g.lineTo(256, 38);
+      g.stroke();
+      g.strokeStyle = 'rgba(70,110,170,0.25)';
+      for (let y = 70; y < 160; y += 30) {
+        g.beginPath();
+        g.moveTo(0, y);
+        g.lineTo(256, y);
+        g.stroke();
+      }
+      g.fillStyle = '#1d2a52';
+      const label = tr('upNext').toUpperCase();
+      let size = 58;
+      const font = (sz) => `${sz}px "CDS Permanent Marker", "Permanent Marker", "Comic Sans MS", cursive`;
+      g.font = font(size);
+      while (g.measureText(label).width > 226 && size > 30) g.font = font((size -= 2));
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.save();
+      g.translate(128, 100);
+      g.rotate(-0.06);
+      g.fillText(label, 0, 0);
+      g.restore();
+      tex.needsUpdate = true;
+      onChange?.();
+    };
+    const tex = own(new THREE.CanvasTexture(c));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    draw();
+    // The marker hand may arrive after the card is made (the whiteboard loads it): write the card again
+    // once it's there.
+    const marker = () => [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'CDS Permanent Marker' && f.status === 'loaded');
+    let inMarker = marker();
+    const again = () => {
+      if (inMarker || !marker()) return;
+      inMarker = true;
+      draw();
+      document.fonts.removeEventListener('loadingdone', again);
+    };
+    if (!inMarker) {
+      document.fonts.addEventListener('loadingdone', again);
+      for (const ms of [800, 2500, 6000, 12000]) setTimeout(again, ms);
+    }
+    const card = new THREE.Mesh(own(new THREE.PlaneGeometry(72, 45)), own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide })));
+    card.castShadow = true;
+    return card;
+  }
   // entries: [{ name, artist, cover, ref }], next first.
   function setQueue(entries) {
     if (furniture !== 'table') return;
@@ -824,40 +926,63 @@ export function createCorner({ scene, own, boardMat, sideMat, walnutCanvas, cont
     if (key === queueKey) return;
     queueKey = key;
     for (const m of [...queuePile.children]) {
+      if (m === queueCard) continue;
       queuePile.remove(m);
       m.material[2].dispose();
+      m.material[4].map?.dispose();
+      m.material[4].dispose();
     }
-    // Bottom of the pile first: the next track ends up on top.
+    // Bottom of the pile first: the next track ends up on top. Each case a little off square, the way
+    // a pile of CDs ends up after being picked through.
+    const n = list.length;
     [...list].reverse().forEach((entry, i) => {
-      const top = new THREE.MeshPhysicalMaterial({ color: 0x333333, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.06 });
-      const m = new THREE.Mesh(queueGeo, [plastic, plastic, top, plastic, plastic, plastic]);
-      m.position.set(Math.sin(i * 2.3 + 1) * 7, 5.2 + i * 10.6, Math.cos(i * 1.7) * 6);
-      m.rotation.y = 0.35 + Math.sin(i * 3.1) * 0.12;
+      const top = new THREE.MeshPhysicalMaterial({ color: 0x2a2c30, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 });
+      const spine = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.1 });
+      const m = new THREE.Mesh(queueGeo, [smoke, smoke, top, smoke, spine, smoke]);
+      const k = n - 1 - i; // 0 = the top of the pile
+      m.position.set(Math.sin(i * 2.3 + 1) * 5 - k * 1.5, 5.2 + i * 10.45, Math.cos(i * 1.7) * 4 + k * 1.2);
+      m.rotation.y = 0.32 + Math.sin(i * 3.1 + 0.4) * 0.09;
       m.castShadow = m.receiveShadow = true;
       m.userData.queue = entry;
       queuePile.add(m);
+      const done = (img) => {
+        spine.map = spineTexture(entry, img);
+        spine.needsUpdate = true;
+        onChange?.();
+      };
       if (entry.cover)
         coverTexture(entry.cover)
           .then((tex) => {
             top.map = tex;
             top.color.set(0xffffff);
             top.needsUpdate = true;
-            onChange?.();
+            done(tex.image);
           })
-          .catch(() => {});
+          .catch(() => done(null));
+      else done(null);
     });
+    if (n && !queueCard) {
+      queueCard = makeQueueCard();
+      queuePile.add(queueCard);
+    }
+    if (queueCard) {
+      queueCard.visible = n > 0;
+      // Propped up beside the pile, facing the room.
+      queueCard.position.set(150, 20, 58);
+      queueCard.rotation.set(-0.28, -0.22, 0.04);
+    }
     placeQueue();
     onChange?.();
   }
   function placeQueue() {
     if (!queueSpot) return;
     queuePile.position.copy(queueSpot);
-    queuePile.visible = queuePile.children.length > 0;
+    queuePile.visible = queuePile.children.some((m) => m.userData.queue);
   }
   // The queue entry under the ray, or null.
   function queueAt(raycaster) {
     if (!queuePile.visible || !queuePile.children.length) return null;
-    const hit = raycaster.intersectObjects(queuePile.children, false)[0];
+    const hit = raycaster.intersectObjects(queuePile.children, false).find((h) => h.object.userData.queue);
     return hit ? hit.object.userData.queue : null;
   }
 
